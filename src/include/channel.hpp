@@ -110,6 +110,7 @@ void Channel<ValueType, MAX_SIZE>::close() {
   _m_condition.notify_all();
 
   while (!_m_queue.empty()) {
+    _m_queue.front().~ValueType();
     _m_queue.pop();
   }
 }

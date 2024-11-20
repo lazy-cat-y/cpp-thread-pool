@@ -3,6 +3,7 @@ include_directories(${CMAKE_SOURCE_DIR}/src/include)
 
 set(SOURCE_FILES
     test-channel.cc
+    test-worker.cc
 )
 
 add_executable(thread-pool-test ${SOURCE_FILES})
@@ -15,3 +16,5 @@ target_include_directories(thread-pool-test PRIVATE
 )
 
 add_test(NAME TestChannel COMMAND thread-pool-test TestChannel)
+
+add_test(NAME TestWorker COMMAND thread-pool-test TestWorker)

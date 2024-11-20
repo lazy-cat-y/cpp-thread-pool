@@ -2,7 +2,7 @@
 include_directories(${CMAKE_SOURCE_DIR}/src/include)
 
 set(SOURCE_FILES
-    channel.cc
+    main.cc
 )
 
 add_library(thread-pool ${SOURCE_FILES})
