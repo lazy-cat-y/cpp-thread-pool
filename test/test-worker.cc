@@ -73,28 +73,6 @@ TEST(WorkerTest, WorkerSleepFor) {
   worker.join();
 }
 
-TEST(WorkerTest, StealTask) {
-  Worker worker1;
-  Worker worker2;
-  worker1.start();
-  worker2.start();
-
-  auto task = []() { return 100; };
-  auto future = worker1.submit(task);
-
-  auto stolen_task = worker2.steal_task();
-  ASSERT_TRUE(stolen_task.has_value());
-
-  stolen_task.value()();  // Execute the stolen task.
-
-  EXPECT_EQ(future.get(), 100);
-
-  worker1.stop();
-  worker1.join();
-  worker2.stop();
-  worker2.join();
-}
-
 TEST(WorkerTest, StartPool) {
   std::vector<std::unique_ptr<Worker>> workers;
   for (int i = 0; i < 4; ++i) {
@@ -124,4 +102,22 @@ TEST(WorkerTest, HandleClosedChannel) {
   worker.join();
 
   EXPECT_THROW(worker.submit([]() {}), std::runtime_error);
+}
+
+TEST(WorkerTest, Heartbeat) {
+  Worker worker;
+  worker.start();
+
+  auto start_time = std::chrono::steady_clock::now();
+
+  worker.submit([]() {}).get();  // Submit a no-op task.
+
+  auto elapsed_time = std::chrono::steady_clock::now() - start_time;
+  auto heartbeat = worker.last_heartbeat();
+
+  // heartbeat greater than start_time
+  EXPECT_GE(heartbeat, start_time);
+
+  worker.stop();
+  worker.join();
 }

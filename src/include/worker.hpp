@@ -62,6 +62,10 @@ class Worker {
 
   inline bool is_idle() const { return _m_status == WORKER_STATUS_IDLE; }
 
+  inline std::chrono::steady_clock::time_point last_heartbeat() const {
+    return _m_heartbeat;
+  }
+
   inline void sleep_for(std::chrono::milliseconds _m_time);
 
  private:
@@ -69,6 +73,7 @@ class Worker {
   uint8_t _m_status;
   std::mutex _m_status_mutex;
   std::chrono::steady_clock::time_point _m_paused_until;
+  std::chrono::steady_clock::time_point _m_heartbeat;
   Channel<std::packaged_task<void()>, 100> _m_channel;
 };
 
@@ -157,12 +162,23 @@ inline void Worker::run_pool(
     if (!o_task.has_value()) {
       std::this_thread::yield();
     }
+    _m_heartbeat = std::chrono::steady_clock::now();
   }
 }
 
 inline void Worker::run() {
   std::optional<std::packaged_task<void()>> task;
   while (!_m_channel.is_closed() && _m_status == WORKER_STATUS_RUNNING) {
+
+    std::unique_lock<std::mutex> lock(_m_status_mutex);
+    if (_m_paused_until > std::chrono::steady_clock::now()) {
+      lock.unlock();
+      std::this_thread::sleep_for(_m_paused_until -
+                                  std::chrono::steady_clock::now());
+      continue;
+    }
+    lock.unlock();
+
     _m_channel >> task;
 
     if (task.has_value()) {
@@ -170,6 +186,7 @@ inline void Worker::run() {
     } else {
       break;
     }
+    _m_heartbeat = std::chrono::steady_clock::now();
   }
 }
 
