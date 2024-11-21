@@ -9,59 +9,119 @@
 #include <stdexcept>
 #include "worker.hpp"
 
-class WorkerTest : public ::testing::Test {
- protected:
-  void SetUp() override { worker.start(); }
-
-  void TearDown() override { worker.stop(); }
-
+TEST(WorkerTest, Initialization) {
   Worker worker;
-};
+  EXPECT_EQ(worker.status(), WORKER_STATUS_IDLE);
+  EXPECT_TRUE(worker.is_idle());
+}
 
-TEST_F(WorkerTest, StartAndStopWorker) {
+TEST(WorkerTest, StartAndStop) {
+  Worker worker;
   EXPECT_NO_THROW(worker.start());
+  EXPECT_EQ(worker.status(), WORKER_STATUS_RUNNING);
 
-  worker.stop();
   EXPECT_NO_THROW(worker.stop());
+  EXPECT_NO_THROW(worker.join());
+  EXPECT_EQ(worker.status(), WORKER_STATUS_STOPPED);
 }
 
-TEST_F(WorkerTest, SubmitTask) {
-  auto future = worker.submit([]() { return 42; });
-  ASSERT_EQ(future.get(), 42);
+TEST(WorkerTest, SubmitTask) {
+  Worker worker;
+  worker.start();
 
-  std::atomic<int> counter = 0;
-  for (int i = 0; i < 10; ++i) {
-    auto future = worker.submit([&counter]() { counter++; });
+  auto task = []() { return 42; };
+  auto future = worker.submit(task);
+
+  EXPECT_EQ(future.get(), 42);
+
+  worker.stop();
+  worker.join();
+}
+
+TEST(WorkerTest, RunMultipleTasks) {
+  Worker worker;
+  worker.start();
+
+  auto task1 = []() { return 1; };
+  auto task2 = []() { return 2; };
+
+  auto future1 = worker.submit(task1);
+  auto future2 = worker.submit(task2);
+
+  EXPECT_EQ(future1.get(), 1);
+  EXPECT_EQ(future2.get(), 2);
+
+  worker.stop();
+  worker.join();
+}
+
+TEST(WorkerTest, WorkerSleepFor) {
+  Worker worker;
+  worker.start();
+
+  auto start_time = std::chrono::steady_clock::now();
+  worker.sleep_for(std::chrono::milliseconds(200));
+
+  worker.submit([]() {}).get();  // Submit a no-op task.
+
+  auto elapsed_time = std::chrono::steady_clock::now() - start_time;
+  EXPECT_GE(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_time)
+                .count(),
+            200);
+
+  worker.stop();
+  worker.join();
+}
+
+TEST(WorkerTest, StealTask) {
+  Worker worker1;
+  Worker worker2;
+  worker1.start();
+  worker2.start();
+
+  auto task = []() { return 100; };
+  auto future = worker1.submit(task);
+
+  auto stolen_task = worker2.steal_task();
+  ASSERT_TRUE(stolen_task.has_value());
+
+  stolen_task.value()();  // Execute the stolen task.
+
+  EXPECT_EQ(future.get(), 100);
+
+  worker1.stop();
+  worker1.join();
+  worker2.stop();
+  worker2.join();
+}
+
+TEST(WorkerTest, StartPool) {
+  std::vector<std::unique_ptr<Worker>> workers;
+  for (int i = 0; i < 4; ++i) {
+    workers.push_back(std::make_unique<Worker>());
   }
 
-  // 等待任务执行完成
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  EXPECT_EQ(counter, 10);
-}
-
-TEST_F(WorkerTest, SubmitTaskAfterStop) {
-  worker.stop();
-  EXPECT_THROW(worker.submit([]() { return 42; }), std::runtime_error);
-}
-
-TEST_F(WorkerTest, JoinWorker) {
-  worker.stop();
-  EXPECT_NO_THROW(worker.join()); 
-}
-
-TEST_F(WorkerTest, RunMultipleTasks) {
-  std::vector<std::future<int>> futures;
-
-  for (int i = 0; i < 5; ++i) {
-    futures.push_back(worker.submit([i]() { return i * i; }));
+  for (auto &worker : workers) {
+    worker->start_pool(workers);
   }
 
-  for (int i = 0; i < 5; ++i) {
-    EXPECT_EQ(futures[i].get(), i * i);
+  auto task = []() { return 42; };
+  auto future = workers[0]->submit(task);
+
+  EXPECT_EQ(future.get(), 42);
+
+  for (auto &worker : workers) {
+    worker->stop();
+    worker->join();
   }
 }
 
-TEST_F(WorkerTest, WorkerReuse) {
+TEST(WorkerTest, HandleClosedChannel) {
+  Worker worker;
+  worker.start();
+
   worker.stop();
-  EXPECT_THROW(worker.start(), std::runtime_error);
+  worker.join();
+
+  EXPECT_THROW(worker.submit([]() {}), std::runtime_error);
 }

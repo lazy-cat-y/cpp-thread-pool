@@ -13,10 +13,11 @@
 #include <cstddef>
 #include <future>
 #include <memory>
+#include <mutex>
 #include "m-define.h"
 #include "worker.hpp"
 
-template <size_t POOL_SIZE = 10, size_t QUEUE_SIZE = 100>
+template <size_t POOL_SIZE = 10, size_t QUEUE_SIZE = 100, size_t CHECK_TIME = 5>
 class ThreadPool {
  public:
   ThreadPool() : _next_worker(0), _m_status(THREAD_POOL_STATUS_IDLE) {
@@ -55,12 +56,16 @@ class ThreadPool {
   std::vector<std::unique_ptr<Worker>> _m_workers;
   std::atomic<size_t> _next_worker;
   std::atomic<uint8_t> _m_status;
+  std::mutex _m_status_mutex;
+
+  void detect_dead_worker();
 };
 
-template <size_t POOL_SIZE, size_t QUEUE_SIZE>
+template <size_t POOL_SIZE, size_t QUEUE_SIZE, size_t CHECK_TIME>
 template <typename Func, typename... Args>
 std::future<typename std::invoke_result_t<Func, Args...>>
-ThreadPool<POOL_SIZE, QUEUE_SIZE>::submit(Func &&func, Args &&...args) {
+ThreadPool<POOL_SIZE, QUEUE_SIZE, CHECK_TIME>::submit(Func &&func,
+                                                      Args &&...args) {
   if (_m_status.load(std::memory_order_relaxed) != THREAD_POOL_STATUS_RUNNING) {
     throw std::runtime_error("Thread pool is not running.");
   }
@@ -86,8 +91,8 @@ ThreadPool<POOL_SIZE, QUEUE_SIZE>::submit(Func &&func, Args &&...args) {
   return future;
 }
 
-template <size_t POOL_SIZE, size_t QUEUE_SIZE>
-void ThreadPool<POOL_SIZE, QUEUE_SIZE>::shutdown() {
+template <size_t POOL_SIZE, size_t QUEUE_SIZE, size_t CHECK_TIME>
+void ThreadPool<POOL_SIZE, QUEUE_SIZE, CHECK_TIME>::shutdown() {
   _m_status.exchange(THREAD_POOL_STATUS_STOPPING);
   for (auto &worker : _m_workers) {
     worker->stop();
@@ -97,5 +102,8 @@ void ThreadPool<POOL_SIZE, QUEUE_SIZE>::shutdown() {
   }
   _m_status.exchange(THREAD_POOL_STATUS_STOPPED);
 }
+
+template <size_t POOL_SIZE, size_t QUEUE_SIZE, size_t CHECK_TIME>
+void ThreadPool<POOL_SIZE, QUEUE_SIZE, CHECK_TIME>::detect_dead_worker() {}
 
 #endif  // POOL_H

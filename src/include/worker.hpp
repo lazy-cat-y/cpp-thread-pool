@@ -10,9 +10,11 @@
 #define WORKER_H
 
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <thread>
 #include <type_traits>
@@ -22,7 +24,9 @@
 
 class Worker {
  public:
-  Worker() : _m_status(WORKER_STATUS_IDLE) {}
+  Worker()
+      : _m_status{WORKER_STATUS_IDLE},
+        _m_paused_until{std::chrono::steady_clock::now()} {}
 
   Worker(const Worker &) = delete;
   Worker &operator=(const Worker &) = delete;
@@ -56,9 +60,15 @@ class Worker {
 
   const Worker *get() const { return this; }
 
+  inline bool is_idle() const { return _m_status == WORKER_STATUS_IDLE; }
+
+  inline void sleep_for(std::chrono::milliseconds _m_time);
+
  private:
   std::thread _m_thread;
   uint8_t _m_status;
+  std::mutex _m_status_mutex;
+  std::chrono::steady_clock::time_point _m_paused_until;
   Channel<std::packaged_task<void()>, 100> _m_channel;
 };
 
@@ -119,6 +129,15 @@ inline void Worker::run_pool(
     std::vector<std::unique_ptr<Worker>> &_m_all_workers) {
   std::optional<std::packaged_task<void()>> o_task;
   while (!_m_channel.is_closed() && _m_status == WORKER_STATUS_RUNNING) {
+    std::unique_lock<std::mutex> lock(_m_status_mutex);
+    if (_m_paused_until > std::chrono::steady_clock::now()) {
+      lock.unlock();
+      std::this_thread::sleep_for(_m_paused_until -
+                                  std::chrono::steady_clock::now());
+      continue;
+    }
+    lock.unlock();
+
     _m_channel >> o_task;
 
     if (o_task.has_value()) {
@@ -158,6 +177,11 @@ inline std::optional<std::packaged_task<void()>> Worker::steal_task() {
   std::optional<std::packaged_task<void()>> task;
   _m_channel >> task;
   return task;
+}
+
+inline void Worker::sleep_for(std::chrono::milliseconds _m_time) {
+  std::unique_lock<std::mutex> lock(_m_status_mutex);
+  _m_paused_until = std::chrono::steady_clock::now() + _m_time;
 }
 
 #endif  // WORKER_H
