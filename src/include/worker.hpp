@@ -25,7 +25,7 @@
 class Worker {
  public:
   Worker()
-      : _m_status{WORKER_STATUS_IDLE},
+      : _m_status{WORKER_STATUS_CREATED},
         _m_paused_until{std::chrono::steady_clock::now()} {}
 
   Worker(const Worker &) = delete;
@@ -61,6 +61,8 @@ class Worker {
   const Worker *get() const { return this; }
 
   inline bool is_idle() const { return _m_status == WORKER_STATUS_IDLE; }
+
+  inline bool task_queue_empty() { return _m_channel.size() == 0; }
 
   inline std::chrono::steady_clock::time_point last_heartbeat() const {
     return _m_heartbeat;
@@ -100,9 +102,11 @@ inline void Worker::start_pool(
       _m_status == WORKER_STATUS_STOPPING) {
     throw std::runtime_error("Worker is stopping or stopped.");
   }
-  if (_m_status == WORKER_STATUS_RUNNING) return;
+  if (_m_status == WORKER_STATUS_RUNNING || _m_status == WORKER_STATUS_IDLE) {
+    return;
+  }
 
-  _m_status = WORKER_STATUS_RUNNING;
+  _m_status = WORKER_STATUS_IDLE;
   _m_thread = std::thread(&Worker::run_pool, this, std::ref(_m_all_workers));
 }
 
@@ -111,14 +115,18 @@ inline void Worker::start() {
       _m_status == WORKER_STATUS_STOPPING) {
     throw std::runtime_error("Worker is stopping or stopped.");
   }
-  if (_m_status == WORKER_STATUS_RUNNING) return;
+  if (_m_status == WORKER_STATUS_RUNNING || _m_status == WORKER_STATUS_IDLE) {
+    return;
+  }
 
-  _m_status = WORKER_STATUS_RUNNING;
+  _m_status = WORKER_STATUS_IDLE;
   _m_thread = std::thread(&Worker::run, this);
 }
 
 inline void Worker::stop() {
-  if (_m_status == WORKER_STATUS_STOPPED) return;
+  if (_m_status == WORKER_STATUS_STOPPED) {
+    return;
+  }
 
   _m_status = WORKER_STATUS_STOPPING;
   _m_channel.close();
@@ -133,7 +141,7 @@ inline void Worker::join() {
 inline void Worker::run_pool(
     std::vector<std::unique_ptr<Worker>> &_m_all_workers) {
   std::optional<std::packaged_task<void()>> o_task;
-  while (!_m_channel.is_closed() && _m_status == WORKER_STATUS_RUNNING) {
+  while (!_m_channel.is_closed() && _m_status == WORKER_STATUS_IDLE) {
     std::unique_lock<std::mutex> lock(_m_status_mutex);
     if (_m_paused_until > std::chrono::steady_clock::now()) {
       lock.unlock();
@@ -143,6 +151,7 @@ inline void Worker::run_pool(
     }
     lock.unlock();
 
+    _m_status = WORKER_STATUS_RUNNING;
     _m_channel >> o_task;
 
     if (o_task.has_value()) {
@@ -163,13 +172,14 @@ inline void Worker::run_pool(
       std::this_thread::yield();
     }
     _m_heartbeat = std::chrono::steady_clock::now();
+
+    _m_status = WORKER_STATUS_IDLE;
   }
 }
 
 inline void Worker::run() {
   std::optional<std::packaged_task<void()>> task;
-  while (!_m_channel.is_closed() && _m_status == WORKER_STATUS_RUNNING) {
-
+  while (!_m_channel.is_closed() && _m_status == WORKER_STATUS_IDLE) {
     std::unique_lock<std::mutex> lock(_m_status_mutex);
     if (_m_paused_until > std::chrono::steady_clock::now()) {
       lock.unlock();
@@ -179,14 +189,16 @@ inline void Worker::run() {
     }
     lock.unlock();
 
+    _m_status = WORKER_STATUS_RUNNING;
     _m_channel >> task;
 
     if (task.has_value()) {
       task.value()();
     } else {
-      break;
+      std::this_thread::yield();
     }
     _m_heartbeat = std::chrono::steady_clock::now();
+    _m_status = WORKER_STATUS_IDLE;
   }
 }
 

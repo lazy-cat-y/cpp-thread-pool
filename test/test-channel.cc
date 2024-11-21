@@ -7,6 +7,7 @@
 
 
 
+#include <iostream>
 #include <thread>
 #include <vector>
 #include "channel.hpp"
@@ -83,7 +84,7 @@ TEST_F(ChannelTest, ThreadSafety) {
     consumers.emplace_back([&]() {
       while (true) {
         auto value = channel.receive();
-        if (!value.has_value()) break;                   
+        if (!value.has_value()) break; 
         std::lock_guard<std::mutex> guard(result_mutex);  
         received_values.push_back(value.value());
       }
@@ -94,6 +95,5 @@ TEST_F(ChannelTest, ThreadSafety) {
   for (auto &thr : producers) thr.join();
   channel.close();
   for (auto &thr : consumers) thr.join();
-
   EXPECT_EQ(received_values.size(), NUM_THREADS * NUM_VALUES);
 }

@@ -9,11 +9,14 @@
 #ifndef POOL_H
 #define POOL_H
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <future>
+#include <iostream>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include "m-define.h"
 #include "worker.hpp"
 
@@ -52,13 +55,19 @@ class ThreadPool {
 
   int status() const { return _m_status; }
 
+#if !defined (ENABLE_TEST)
  private:
+#endif
+  void submit_monitor_taskers();
+  void restart_worker(size_t worker_id);
+
   std::vector<std::unique_ptr<Worker>> _m_workers;
   std::atomic<size_t> _next_worker;
   std::atomic<uint8_t> _m_status;
   std::mutex _m_status_mutex;
 
-  void detect_dead_worker();
+  std::unique_ptr<Worker> _m_dead_worker;
+  std::unique_ptr<Worker> _m_heartbeat_monitor_worker;
 };
 
 template <size_t POOL_SIZE, size_t QUEUE_SIZE, size_t CHECK_TIME>
@@ -104,6 +113,71 @@ void ThreadPool<POOL_SIZE, QUEUE_SIZE, CHECK_TIME>::shutdown() {
 }
 
 template <size_t POOL_SIZE, size_t QUEUE_SIZE, size_t CHECK_TIME>
-void ThreadPool<POOL_SIZE, QUEUE_SIZE, CHECK_TIME>::detect_dead_worker() {}
+void ThreadPool<POOL_SIZE, QUEUE_SIZE, CHECK_TIME>::submit_monitor_taskers() {
+  _m_dead_worker->submit([this]() {
+    while (_m_status == THREAD_POOL_STATUS_RUNNING) {
+      std::this_thread::sleep_for(std::chrono::seconds(CHECK_TIME));
+
+      bool all_idle = true;
+      bool task_queue_empty = true;
+
+      {
+        std::lock_guard<std::mutex> lock(_m_status_mutex);
+
+        all_idle =
+            std::all_of(_m_workers.begin(), _m_workers.end(),
+                        [](const auto &worker) { return worker->is_idle(); });
+
+        task_queue_empty = std::all_of(
+            _m_workers.begin(), _m_workers.end(),
+            [](const auto &worker) { return worker->task_queue_empty(); });
+      }
+
+      if (all_idle && !task_queue_empty) {
+#if defined(DEBUG)
+        std::cerr << "Deadlock detected: all workers idle but queue not empty."
+                  << std::endl;
+#endif
+        shutdown();
+        throw std::runtime_error("Deadlock detected.");
+      }
+    }
+  });
+
+  _m_heartbeat_monitor_worker->submit([this]() {
+    while (_m_status == THREAD_POOL_STATUS_RUNNING) {
+      std::this_thread::sleep_for(std::chrono::seconds(CHECK_TIME));
+
+      auto now = std::chrono::steady_clock::now();
+
+      for (size_t i = 0; i < POOL_SIZE; ++i) {
+        const auto &worker = _m_workers[i];
+        if ((now - worker->last_heartbeat()) >
+            std::chrono::seconds(CHECK_TIME * 2)) {
+#if defined(DEBUG)
+          std::cerr << "Worker " << i << " is dead." << std::endl;
+#endif
+          restart_worker(i);
+        }
+      }
+    }
+  });
+}
+
+template <size_t POOL_SIZE, size_t QUEUE_SIZE, size_t CHECK_TIME>
+void ThreadPool<POOL_SIZE, QUEUE_SIZE, CHECK_TIME>::restart_worker(
+    size_t worker_id) {
+  if (worker_id >= POOL_SIZE) {
+    throw std::out_of_range("Worker ID out of range.");
+  }
+
+  std::lock_guard<std::mutex> lock(_m_status_mutex);
+
+  _m_workers[worker_id]->stop();
+  _m_workers[worker_id]->join();
+  _m_workers[worker_id] = std::make_unique<Worker>();
+
+  _m_workers[worker_id]->start_pool(_m_workers);
+}
 
 #endif  // POOL_H

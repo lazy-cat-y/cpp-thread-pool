@@ -7,20 +7,22 @@
 
 #include <gtest/gtest.h>
 #include <stdexcept>
+#include "m-define.h"
 #include "worker.hpp"
 
 TEST(WorkerTest, Initialization) {
   Worker worker;
-  EXPECT_EQ(worker.status(), WORKER_STATUS_IDLE);
-  EXPECT_TRUE(worker.is_idle());
+  EXPECT_EQ(worker.status(), WORKER_STATUS_CREATED);
+  EXPECT_FALSE(worker.is_idle());
 }
 
 TEST(WorkerTest, StartAndStop) {
   Worker worker;
   EXPECT_NO_THROW(worker.start());
-  EXPECT_EQ(worker.status(), WORKER_STATUS_RUNNING);
+  EXPECT_EQ(worker.status(), WORKER_STATUS_IDLE);
 
   EXPECT_NO_THROW(worker.stop());
+  EXPECT_EQ(worker.status(), WORKER_STATUS_STOPPING);
   EXPECT_NO_THROW(worker.join());
   EXPECT_EQ(worker.status(), WORKER_STATUS_STOPPED);
 }
