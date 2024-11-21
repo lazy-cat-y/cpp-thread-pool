@@ -5,3 +5,5 @@
 /third-party/
 
 /.cache/
+
+/.vscode/
