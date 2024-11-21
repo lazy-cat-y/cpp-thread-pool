@@ -1,4 +1,9 @@
 
+/** @file /test/test-channel.cc
+ *  @brief Contains the Worker class test cases.
+ *  @author H. Y.
+ *  @date 11/19/2024
+ */
 
 #include <gtest/gtest.h>
 #include <stdexcept>

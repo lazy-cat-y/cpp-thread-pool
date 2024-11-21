@@ -9,17 +9,17 @@
 #ifndef WORKER_H
 #define WORKER_H
 
+#include <cassert>
 #include <cstdint>
 #include <future>
+#include <iostream>
+#include <memory>
 #include <optional>
 #include <thread>
 #include <type_traits>
+#include <vector>
 #include "channel.hpp"
-
-#define WORKER_STATUS_IDLE 0
-#define WORKER_STATUS_RUNNING 1
-#define WORKER_STATUS_STOPPING 2
-#define WORKER_STATUS_STOPPED 3
+#include "m-define.h"
 
 class Worker {
  public:
@@ -31,11 +31,13 @@ class Worker {
   Worker &operator=(Worker &&) = delete;
 
   ~Worker() {
-      stop();
-      join();
+    stop();
+    join();
   }
 
   inline void start();
+
+  inline void start_pool(std::vector<std::unique_ptr<Worker>> &_m_all_workers);
 
   inline void stop();
 
@@ -43,9 +45,17 @@ class Worker {
 
   inline void run();
 
+  inline void run_pool(std::vector<std::unique_ptr<Worker>> &workers);
+
   template <typename Func, typename... Args>
   std::future<typename std::invoke_result_t<Func, Args...>> submit(
       Func &&func, Args &&...args);
+
+  inline std::optional<std::packaged_task<void()>> steal_task();
+
+  inline int status() const { return _m_status; }
+
+  const Worker *get() const { return this; }
 
  private:
   std::thread _m_thread;
@@ -70,8 +80,21 @@ std::future<typename std::invoke_result_t<Func, Args...>> Worker::submit(
   return future;
 }
 
+inline void Worker::start_pool(
+    std::vector<std::unique_ptr<Worker>> &_m_all_workers) {
+  if (_m_status == WORKER_STATUS_STOPPED ||
+      _m_status == WORKER_STATUS_STOPPING) {
+    throw std::runtime_error("Worker is stopping or stopped.");
+  }
+  if (_m_status == WORKER_STATUS_RUNNING) return;
+
+  _m_status = WORKER_STATUS_RUNNING;
+  _m_thread = std::thread(&Worker::run_pool, this, std::ref(_m_all_workers));
+}
+
 inline void Worker::start() {
-  if (_m_status == WORKER_STATUS_STOPPED || _m_status == WORKER_STATUS_STOPPING) {
+  if (_m_status == WORKER_STATUS_STOPPED ||
+      _m_status == WORKER_STATUS_STOPPING) {
     throw std::runtime_error("Worker is stopping or stopped.");
   }
   if (_m_status == WORKER_STATUS_RUNNING) return;
@@ -93,6 +116,32 @@ inline void Worker::join() {
   _m_status = WORKER_STATUS_STOPPED;
 }
 
+inline void Worker::run_pool(
+    std::vector<std::unique_ptr<Worker>> &_m_all_workers) {
+  std::optional<std::packaged_task<void()>> o_task;
+  while (!_m_channel.is_closed() && _m_status == WORKER_STATUS_RUNNING) {
+    _m_channel >> o_task;
+
+    if (o_task.has_value()) {
+      o_task.value()();
+    } else {
+      for (auto &other_worker : _m_all_workers) {
+        if (_m_channel.is_closed()) break;
+        if (other_worker.get() == this) continue;
+        auto other_task = other_worker->steal_task();
+        if (other_task.has_value()) {
+          other_task.value()();
+          break;
+        }
+      }
+    }
+
+    if (!o_task.has_value()) {
+      std::this_thread::yield();
+    }
+  }
+}
+
 inline void Worker::run() {
   std::optional<std::packaged_task<void()>> task;
   while (!_m_channel.is_closed() && _m_status == WORKER_STATUS_RUNNING) {
@@ -104,7 +153,12 @@ inline void Worker::run() {
       break;
     }
   }
-  _m_status = WORKER_STATUS_STOPPED;
+}
+
+inline std::optional<std::packaged_task<void()>> Worker::steal_task() {
+  std::optional<std::packaged_task<void()>> task;
+  _m_channel >> task;
+  return task;
 }
 
 #endif  // WORKER_H
