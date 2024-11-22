@@ -69,7 +69,7 @@ This project supports configurable build options via `CMake`. You can customize 
 | Option Name        | Description                                                                          | Default Value |
 | ------------------ | ------------------------------------------------------------------------------------ | ------------- |
 | `ENABLE_TEST`      | Enable building unit tests using Google Test.                                        | `OFF`         |
-| `CMAKE_BUILD_TYPE` | Specify the build type. Options: `Debug`, `Release`, `RelWithDebInfo`, `MinSizeRel`. | `Debug`       |
+| `CMAKE_BUILD_TYPE` | Specify the build type. Options: `Debug`, `Release`, `RelWithDebInfo`, `MinSizeRel`. | `Release`       |
 
 ---
 
