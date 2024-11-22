@@ -1,8 +1,43 @@
+/*****************************************************************************
+Copyright (c) 2024 Haoxin Yang
+
+Author: Haoxin Yang (lazy-cat-y)
+
+Licensed under the MIT License. You may obtain a copy of the License at:
+https://opensource.org/licenses/MIT
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+File: test-pool
+*****************************************************************************/
+
+
+/** @file /test/test-pool.cc
+ *  @brief Contains the ThreadPool class test cases.
+ *  @author H. Y.
+ *  @date 11/20/2024
+ */
 
 #include <gtest/gtest.h>
 #include <future>
 #include <vector>
-#include "pool.hpp"  // 假设你的 ThreadPool 类定义在这个文件中
+#include "pool.hpp"  
 
 TEST(ThreadPoolTest, ConstructorAndDestructor) {
     EXPECT_NO_THROW({
@@ -11,16 +46,13 @@ TEST(ThreadPoolTest, ConstructorAndDestructor) {
 }
 
 
-// 测试任务提交和执行结果
 TEST(ThreadPoolTest, TaskSubmission) {
     ThreadPool<4, 10, 2> pool;
 
-    // 提交任务: 计算累加和
     auto task = pool.submit([](int a, int b) { return a + b; }, 3, 5);
-    ASSERT_EQ(task.get(), 8); // 验证任务返回的结果
+    ASSERT_EQ(task.get(), 8);
 }
 
-// 测试多任务执行
 TEST(ThreadPoolTest, MultipleTasks) {
     ThreadPool<4, 10, 2> pool;
 
@@ -30,30 +62,27 @@ TEST(ThreadPoolTest, MultipleTasks) {
     }
 
     for (int i = 0; i < 10; ++i) {
-        EXPECT_EQ(futures[i].get(), i * i); // 验证每个任务的结果
+        EXPECT_EQ(futures[i].get(), i * i); 
     }
 }
 
-// 测试线程池关闭后无法提交任务
 TEST(ThreadPoolTest, CannotSubmitAfterShutdown) {
     ThreadPool<4, 10, 2> pool;
 
-    pool.shutdown(); // 关闭线程池
+    pool.shutdown();
 
-    EXPECT_THROW(pool.submit([]() {}), std::runtime_error); // 提交任务时抛出异常
+    EXPECT_THROW(pool.submit([]() {}), std::runtime_error);
 }
 
-// 测试线程池状态
 TEST(ThreadPoolTest, Status) {
     ThreadPool<4, 10, 2> pool;
 
-    EXPECT_EQ(pool.status(), THREAD_POOL_STATUS_RUNNING); // 验证线程池状态为运行中
+    EXPECT_EQ(pool.status(), THREAD_POOL_STATUS_RUNNING);
 
     pool.shutdown(); // 关闭线程池
-    EXPECT_EQ(pool.status(), THREAD_POOL_STATUS_STOPPED); // 验证线程池状态为停止
+    EXPECT_EQ(pool.status(), THREAD_POOL_STATUS_STOPPED);
 }
 
-// 测试大任务队列执行
 TEST(ThreadPoolTest, LargeTaskQueue) {
     ThreadPool<4, 100, 2> pool;
 
@@ -63,21 +92,18 @@ TEST(ThreadPoolTest, LargeTaskQueue) {
     }
 
     for (int i = 0; i < 100; ++i) {
-        EXPECT_EQ(futures[i].get(), i * i); // 验证每个任务的结果
+        EXPECT_EQ(futures[i].get(), i * i);
     }
 }
 
-// 测试线程池恢复工作后任务执行
 TEST(ThreadPoolTest, RestartWorker) {
     ThreadPool<4, 10, 2> pool;
 
     auto task = pool.submit([]() { return 42; });
     EXPECT_EQ(task.get(), 42);
 
-    // 模拟某个 worker 崩溃
     pool.restart_worker(0);
 
-    // 验证任务仍可提交并正常执行
     auto new_task = pool.submit([]() { return 24; });
     EXPECT_EQ(new_task.get(), 24);
 }
