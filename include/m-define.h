@@ -37,6 +37,8 @@ File: m-define
 #ifndef M_DEFINE_H
 #define M_DEFINE_H
 
+#define FIXED_ARRAY_SIZE 0
+
 #define WORKER_STATUS_CREATED 0
 #define WORKER_STATUS_IDLE 1
 #define WORKER_STATUS_RUNNING 2
