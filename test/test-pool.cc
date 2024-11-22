@@ -37,7 +37,7 @@ File: test-pool
 #include <gtest/gtest.h>
 #include <future>
 #include <vector>
-#include "pool.hpp"  
+#include "worker-pool.hpp"  
 
 TEST(ThreadPoolTest, ConstructorAndDestructor) {
     EXPECT_NO_THROW({

@@ -5,7 +5,7 @@ project(thread-pool CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
@@ -25,8 +25,9 @@ set(FETCHCONTENT_BASE_DIR ${CMAKE_SOURCE_DIR}/third-party)
 include(FetchContent)
 
 add_subdirectory(src)
+
 # gtest
-option(ENABLE_TEST "Enable building tests using Google Test" ON)
+option(ENABLE_TEST "Enable building tests using Google Test" OFF)
 
 # add the executable
 

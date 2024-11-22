@@ -47,7 +47,6 @@ This project implements a thread pool using a worker-based design pattern with a
 - `shutdown`: Gracefully stops all workers.
 - `restart_worker`: Restarts a specific worker in case of failure.
 
----
 
 ## **Getting Started**
 
@@ -55,28 +54,56 @@ This project implements a thread pool using a worker-based design pattern with a
 - A C++17 or newer compiler (e.g., GCC, Clang).
 - CMake (version 3.12 or higher).
 
-### **Build Instructions**
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/lazy-cat-y/cpp-thread-pool.git
-   cd thread-pool
-   ```
+### **Clone the repository**
 
-2. Create a build directory and navigate to it:
-   ```bash
-   mkdir build && cd build
-   ```
+```bash
+git clone https://github.com/lazy-cat-y/cpp-thread-pool.git
+cd cpp-thread-pool
+```
 
-3. Build the project using CMake:
-   ```bash
-   cmake ..
-   make
-   ```
+### Build the project using CMake:
 
-4. Run the tests (if implemented):
-   ```bash
-   ./test-channel
-   ```
+This project supports configurable build options via `CMake`. You can customize the build by enabling or disabling specific features.
+
+#### **Options**
+| Option Name        | Description                                                                          | Default Value |
+| ------------------ | ------------------------------------------------------------------------------------ | ------------- |
+| `ENABLE_TEST`      | Enable building unit tests using Google Test.                                        | `OFF`         |
+| `CMAKE_BUILD_TYPE` | Specify the build type. Options: `Debug`, `Release`, `RelWithDebInfo`, `MinSizeRel`. | `Debug`       |
+
+---
+
+#### **How to Configure Options**
+
+You can configure these options by passing them as arguments to the `cmake` command.
+
+##### Example 1: Disable tests
+If you want to build the project without tests:
+```bash
+cmake -DENABLE_TEST=OFF ..
+```
+
+##### Example 2: Set build type to Release
+If you want to build the project with optimizations:
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release ..
+```
+
+#### Example 3: Enable both options explicitly
+To enable tests and set the build type to `Debug`:
+```bash
+cmake -DENABLE_TEST=ON -DCMAKE_BUILD_TYPE=Debug ..
+```
+
+---
+
+#### **Checking Current Configuration**
+Once CMake is configured, you can verify the applied options in the generated `CMakeCache.txt` file in your build directory. Look for lines like these:
+```text
+ENABLE_TEST:BOOL=OFF
+CMAKE_BUILD_TYPE:STRING=Release
+```
+
 
 ---
 
@@ -84,23 +111,22 @@ This project implements a thread pool using a worker-based design pattern with a
 Here's an example of how to use the thread pool:
 
 ```cpp
-#include "ThreadPool.h"
+#include "worker-pool.h"
 #include <iostream>
 
-void exampleTask(int id) {
-    std::cout << "Executing task " << id << " on thread " 
-              << std::this_thread::get_id() << std::endl;
-}
-
 int main() {
-    ThreadPool<4, 50> threadPool;  // 4 workers, queue size of 50
+    ThreadPool<4, 10, 2> pool;
 
+    std::vector<std::future<int>> futures;
     for (int i = 0; i < 10; ++i) {
-        threadPool.submit(exampleTask, i);
+        futures.push_back(pool.submit([](int x) { return x * x; }, i));
     }
 
-    threadPool.shutdown();  // Gracefully stop all workers
-    return 0;
+    for (int i = 0; i < 10; ++i) {
+        futures[i].get(); 
+    }
+
+    pool.shutdown();
 }
 ```
 
@@ -110,16 +136,20 @@ int main() {
 ```
 .
 ├── CMakeLists.txt           # Build configuration
-├── include
-│   ├── Channel.h            # Channel implementation
-│   ├── Worker.h             # Worker implementation
-│   └── ThreadPool.h         # ThreadPool implementation
 ├── src
-│   ├── Channel.cpp          # Channel source
-│   ├── Worker.cpp           # Worker source
-│   └── ThreadPool.cpp       # ThreadPool source
+│   ├── include              
+│   │   ├── channel.hpp      # Channel implementation
+│   │   ├── m-define.h        # Macros for thread pool
+│   │   ├── worker.hpp       # Worker implementation
+│   │   └── worker-pool.hpp  # ThreadPool implementation
+│   └──  CMakelists.txt      # Source files
 ├── tests
-│   └── test-channel.cpp     # Unit tests for the channel and workers
+│   ├── test-channel.cc      # Unit tests for the channel
+│   ├── test-pool.cc         # Unit tests for the thread pool
+│   └── test-worker.c        # Unit tests for the workers
+├── third-party
+│   └── ...                  # Dependencies
+├── README.md
 └── LICENSE                  # License file (MIT)
 ```
 
