@@ -22,7 +22,7 @@ message(STATUS "Google Test source dir: ${googletest_SOURCE_DIR}")
 message(STATUS "Google Test binary dir: ${googletest_BINARY_DIR}")
 
 
-include_directories(${CMAKE_SOURCE_DIR}/src/include)
+include_directories(${CMAKE_SOURCE_DIR}/include)
 
 set(SOURCE_FILES
     test-channel.cc
@@ -32,7 +32,7 @@ set(SOURCE_FILES
 
 add_executable(thread-pool-test ${SOURCE_FILES})
 
-target_link_libraries(thread-pool-test PRIVATE gtest gtest_main thread-pool)
+target_link_libraries(thread-pool-test PRIVATE gtest gtest_main)
 
 target_include_directories(thread-pool-test PRIVATE
     ${googletest_SOURCE_DIR}/googletest/include
