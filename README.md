@@ -1,11 +1,10 @@
 [![Release](https://img.shields.io/badge/Release-v1.0.0-blueviolet?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool/releases)
 [![Last Commit](https://img.shields.io/badge/Last%20Commit-November%202024-brightgreen?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool/commits)
 [![License](https://img.shields.io/badge/License-MIT-red?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Stars](https://img.shields.io/github/stars/lazy-cat-y/thread-pool?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool/stargazers)
-[![Issues](https://img.shields.io/github/issues/lazy-cat-y/thread-pool?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool/issues)
-[![Code Size](https://img.shields.io/github/languages/code-size/lazy-cat-y/thread-pool?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool)
-[![Contributors](https://img.shields.io/github/contributors/lazy-cat-y/thread-pool?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool/graphs/contributors)
-
+[![Stars](https://img.shields.io/github/stars/lazy-cat-y/cpp-thread-pool?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool/stargazers)
+[![Issues](https://img.shields.io/github/issues/lazy-cat-y/cpp-thread-pool?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool/issues)
+[![Code Size](https://img.shields.io/github/languages/code-size/lazy-cat-y/cpp-thread-pool?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool)
+[![Contributors](https://img.shields.io/github/contributors/lazy-cat-y/cpp-thread-pool?style=flat-square)](https://github.com/lazy-cat-y/cpp-thread-pool/graphs/contributors)
 
 # **Thread Pool with Worker and Channel Implementation**
 
