@@ -24,18 +24,21 @@ set(FETCHCONTENT_BASE_DIR ${CMAKE_SOURCE_DIR}/third-party)
 
 include(FetchContent)
 
-# add_subdirectory(src)
+include_directories(${CMAKE_SOURCE_DIR}/include)
 
 # gtest
-option(ENABLE_TEST "Enable building tests using Google Test" ON)
+option(ENABLE_BASE_TEST "Enable building base tests using Google Test" ON)
+option(ENABLE_BENCHMARK "Enable building benchmarks" OFF)
 
 # add the executable
-
-if (ENABLE_TEST)
-    message(STATUS "Tests are enabled. Adding Google Test.")
+if (ENABLE_BASE_TEST)
+    message(STATUS "Base tests are enabled. Adding Google Test.")
     add_definitions(-DENABLE_TEST)
     enable_testing()
-    add_subdirectory(test)
+    add_subdirectory(test/base-test)
+elseif(ENABLE_BENCHMARK)
+    message(STATUS "Benchmarks are enabled.")
+    add_subdirectory(test/benchmark)
 else()
     message(STATUS "Tests are disabled.")
 endif()

@@ -28,7 +28,7 @@ File: m-define
 *****************************************************************************/
 
 
-/** @file /src/include/m-define.h
+/** @file /include/m-define.h
  *  @brief Contains the macro definitions.
  *  @author H. Y.
  *  @date 11/19/2024

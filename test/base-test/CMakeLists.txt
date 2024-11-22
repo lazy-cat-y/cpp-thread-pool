@@ -21,9 +21,6 @@ endif()
 message(STATUS "Google Test source dir: ${googletest_SOURCE_DIR}")
 message(STATUS "Google Test binary dir: ${googletest_BINARY_DIR}")
 
-
-include_directories(${CMAKE_SOURCE_DIR}/include)
-
 set(SOURCE_FILES
     test-channel.cc
     test-worker.cc

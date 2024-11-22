@@ -28,7 +28,7 @@ File: pool
 *****************************************************************************/
 
 
-/** @file /src/include/pool.hpp
+/** @file /include/pool.hpp
  *  @brief Contains the Pool class.
  *  @author H. Y.
  *  @date 11/20/2024

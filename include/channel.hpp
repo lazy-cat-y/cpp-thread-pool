@@ -28,7 +28,7 @@ File: channel
 *****************************************************************************/
 
 
-/** @file /src/include/channel.hpp
+/** @file /include/channel.hpp
  *  @brief Contains the Channel class.
  *  @author H. Y.
  *  @date 11/19/2024
