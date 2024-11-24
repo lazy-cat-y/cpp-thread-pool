@@ -41,9 +41,7 @@ File: channel
 #include <cstddef>
 #include <cstdlib>
 #include <optional>
-#include <stdexcept>
-#include <thread>
-#include "m-define.h"
+
 
 template <typename ValueType>
 class Segment {
@@ -60,6 +58,12 @@ class Segment {
   std::atomic<Segment *> _next;
 };
 
+template <typename ValueType>
+struct TaggedSegment {
+  Segment<ValueType> *_ptr;
+  std::atomic<int> _version;
+};
+
 template <typename ValueType, size_t QUEUE_SIZE = 100, size_t SEGMENT_SIZE = 10>
 class Channel {
   static_assert(QUEUE_SIZE > 0, "QUEUE_SIZE must be greater than 0.");
@@ -69,42 +73,44 @@ class Channel {
   static_assert(QUEUE_SIZE % SEGMENT_SIZE == 0,
                 "QUEUE_SIZE must be a multiple of SEGMENT_SIZE.");
   using Segment = Segment<ValueType>;
+  using TaggedSegment = TaggedSegment<ValueType>;
 
  public:
   Channel()
-      : _m_segment_pool_size(_m_segment_count),
-        _m_segment_count{QUEUE_SIZE / SEGMENT_SIZE},
-        _m_queue_tail{_m_queue_head},
-        _m_queue_head{new Segment(0)},
-        _m_segment_pool_tail{_m_segment_pool_head},
-        _m_segment_pool_head{new Segment(0)} {
-    Segment *cur = _m_segment_pool_tail;
+      : _m_segment_pool_size{_m_segment_count.load()},
+        _m_segment_count{QUEUE_SIZE / SEGMENT_SIZE}
+  // _m_queue_tail{_m_queue_head},
+  // _m_queue_head{new Segment(0)},
+  // _m_segment_pool_tail{_m_segment_pool_head},
+  // _m_segment_pool_head{new Segment(0)}
+  {
+    // Segment *cur = _m_segment_pool_tail;
 
-    for (size_t i = 0; i < _m_segment_count; ++i) {
-      cur->_next = new Segment(SEGMENT_SIZE);
-      cur = cur->_next;
-    }
+    // for (size_t i = 0; i < _m_segment_count.load(); ++i) {
+    //   cur->_next = new Segment(SEGMENT_SIZE);
+    //   cur = cur->_next;
+    // }
   }
 
   ~Channel() {
     Segment *cur = _m_queue_head;
     Segment *next = nullptr;
 
-    while (cur != nullptr) {
-      next = cur->_next;
-      delete[] cur->_data;
-      delete cur;
-      cur = next;
-    }
+    // while (cur != nullptr) {
+    //   next = cur->_next;
+    //   delete[] cur->_data;
+    //   delete cur;
+    //   cur = next;
+    // }
 
-    cur = _m_segment_pool_head;
+    // cur = _m_segment_pool_head;
 
-    while (cur != nullptr) {
-      next = cur->_next;
-      delete[] cur->_data;
-      delete cur;
-      cur = next;
-    }
+    // while (cur != nullptr) {
+    //   next = cur->_next;
+    //   delete[] cur->_data;
+    //   delete cur;
+    //   cur = next;
+    // }
   }
 
   Channel &operator=(const Channel &) = delete;
@@ -124,12 +130,13 @@ class Channel {
     assert(segment != nullptr);
     assert(segment->_next == nullptr);
 #endif
-    Segment *expected_tail = _m_segment_pool_tail.load();
-    while (
-        !_m_segment_pool_tail.compare_exchange_weak(expected_tail, segment)) {
-    }
-    expected_tail->_next.store(segment);
-    _m_segment_pool_size.fetch_add(1);
+    // Segment *expected_tail = _m_segment_pool_tail.load();
+    // while (
+    //     !_m_segment_pool_tail.compare_exchange_weak(expected_tail, segment))
+    //     {
+    // }
+    // expected_tail->_next.store(segment);
+    // _m_segment_pool_size.fetch_add(1);
   }
 
   Segment *pull_segment_from_pool() {
@@ -137,29 +144,30 @@ class Channel {
     assert(_m_segment_pool_size.load() >= 0);
 #endif
     while (true) {
-      Segment *expected_head = _m_segment_pool_head->_next.load();
+      // Segment *expected_head = _m_segment_pool_head->_next.load();
+      // // TODO: Add a scalar to avoid problem busy wait when there is only one
+      // // thread to use the channel.
+      // if (expected_head == nullptr) {
+      //   std::this_thread::yield();
+      //   continue;
+      // }
 
-      if (expected_head == nullptr) {
-        std::this_thread::yield();
-        continue;
-      }
-
-      if (_m_segment_pool_head->_next.compare_exchange_weak(
-              expected_head, expected_head->_next)) {
-        _m_segment_pool_size.fetch_sub(1);
-        expected_head->_next = nullptr;
-        return expected_head;
-      }
+      // if (_m_segment_pool_head->_next.compare_exchange_weak(
+      //         expected_head, expected_head->_next)) {
+      //   _m_segment_pool_size.fetch_sub(1);
+      //   expected_head->_next = nullptr;
+      //   return expected_head;
+      // }
     }
   }
 
-  size_t _m_segment_count;
+  std::atomic<size_t> _m_segment_count;
   // head -> next is the first segment in the queue.
-  Segment *_m_queue_head;
-  std::atomic<Segment *> _m_queue_tail;
+  std::atomic<TaggedSegment> _m_queue_head;
+  std::atomic<TaggedSegment> _m_queue_tail;
   // head -> next is the first segment in the pool.
-  Segment *_m_segment_pool_head;
-  std::atomic<Segment *> _m_segment_pool_tail;
+  std::atomic<TaggedSegment> _m_segment_pool_head;
+  std::atomic<TaggedSegment> _m_segment_pool_tail;
   std::atomic<size_t> _m_segment_pool_size;
 };
 

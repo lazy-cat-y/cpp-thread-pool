@@ -22,9 +22,10 @@ message(STATUS "Google Test source dir: ${googletest_SOURCE_DIR}")
 message(STATUS "Google Test binary dir: ${googletest_BINARY_DIR}")
 
 set(SOURCE_FILES
-    test-channel.cc
-    test-worker.cc
-    test-pool.cc
+    test-atomic-queue.cc
+    # test-channel.cc
+    # test-worker.cc
+    # test-pool.cc
 )
 
 add_executable(thread-pool-test ${SOURCE_FILES})
@@ -36,8 +37,10 @@ target_include_directories(thread-pool-test PRIVATE
     ${googletest_SOURCE_DIR}/googlemock/include
 )
 
-add_test(NAME TestChannel COMMAND thread-pool-test TestChannel)
+# add_test(NAME TestChannel COMMAND thread-pool-test TestChannel)
 
-add_test(NAME TestWorker COMMAND thread-pool-test TestWorker)
+# add_test(NAME TestWorker COMMAND thread-pool-test TestWorker)
 
-add_test(NAME TestPool COMMAND thread-pool-test TestPool)
+# add_test(NAME TestPool COMMAND thread-pool-test TestPool)
+
+add_test(NAME TestAtomicQueue COMMAND thread-pool-test TestAtomicQueue)

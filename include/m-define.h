@@ -37,6 +37,17 @@ File: m-define
 #ifndef M_DEFINE_H
 #define M_DEFINE_H
 
+#include <cassert>
+#include <iostream>
+
+#define assert_p(condition, ...) \
+    if (!(condition)) {            \
+        std::cerr << "[ASSERT FALSE] "; \
+        fprintf(stderr, __VA_ARGS__); \
+        std::cerr << std::endl; \
+        assert(condition);            \
+    }
+
 #define FIXED_ARRAY_SIZE 0
 
 #define WORKER_STATUS_CREATED 0
