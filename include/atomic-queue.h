@@ -45,12 +45,33 @@ File: atomic-queue
 #include <utility>
 #include "m-define.h"
 
+/**
+ * For the Head and Tail pointers, we use high bits to store the pointer and
+ * low bits to store the version number. The version number is used to avoid
+ * the ABA problem. It is incremented every time the pointer is changed.
+ *
+ *  00000000 00000000 00000000 00000000 00000000 00000000 00000000
+ *  ^------------------------------------------^-^---------------^
+ *  |               Node Pointer               | |    version    |
+ *
+ * NOTE: The version number is limited to 8 bits, meaning the maximum value is
+ * 255. If the version number reaches 255, it will reset to 0. This limitation
+ * is acceptable because this class is designed for use with channels in the
+ * worker and worker pool. In our design, worker tasks operate based on
+ * channels, which use a buffer pool to store tasks and unused memory. As a
+ * result, the version number is unlikely to reach 255 due to the ring size
+ * constraints.
+ */
 #define ATOMIC_QUEUQ_VERSION_MASK 0xff
 #define ATOMIC_QUEUE_ALIGNMENT_OFFSET 0x100
 
 #define ATOMIC_NODE_ALIGNMENT_SIZE (sizeof(Node) / \
             ATOMIC_QUEUE_ALIGNMENT_OFFSET + 1) * ATOMIC_QUEUE_ALIGNMENT_OFFSET)
 
+/**
+ * @brief A lock-free queue implementation using atomic operations.
+ * @tparam ValueType The type of the value stored in the queue.
+ */
 template <typename ValueType>
 class AtomicQueue {
   struct Node {
@@ -78,6 +99,10 @@ class AtomicQueue {
     free(dummy);
   }
 
+  /**
+   * @brief Dequeues a value from the queue.
+   * @return An optional value. If the queue is empty, returns std::nullopt.
+   */
   [[nodiscard]] std::optional<ValueType> dequeue() {
     uintptr_t head;
     Node *head_node;
@@ -94,11 +119,14 @@ class AtomicQueue {
         return std::nullopt;
       }
 
+      // Update the version number.
+      // If the version number reaches the maximum value, reset it to 0.
       new_version = version + 1;
       if (new_version > ATOMIC_QUEUQ_VERSION_MASK) {
         new_version = 0;
       }
 
+      // Try to update the head pointer.
       uintptr_t new_head = pack(next, version + 1);
       if (_m_head.compare_exchange_weak(head, new_head)) {
         ValueType value = std::move(next->_value);
@@ -110,6 +138,10 @@ class AtomicQueue {
     }
   }
 
+  /**
+   * @brief Returns the front value of the queue without removing it.
+   * @return An optional value. If the queue is empty, returns std::nullopt.
+   */
   [[nodiscard]] std::optional<ValueType> front() {
     while (true) {
       uintptr_t head = _m_head.load();
@@ -127,10 +159,16 @@ class AtomicQueue {
     }
   }
 
+  /**
+   * @brief Enqueues a value into the queue.
+   * @param value The value to enqueue. For rvalue reference.
+   */
   void enqueue(ValueType &&value) {
     Node *new_node = reinterpret_cast<Node *>(aligned_alloc(
         ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE);
+#if defined(DEBUG)
     assert_p(new_node != nullptr, "new node is nullptr");
+#endif
     new (new_node) Node(ValueType{std::move(value)});
     uintptr_t tail_pack = _m_tail.load();
     Node *tail = nullptr;
@@ -148,12 +186,20 @@ class AtomicQueue {
       version = unpack_version(tail_pack);
       expected = nullptr;
 
+      // Try to update the tail pointer.
       if (tail->_next.compare_exchange_weak(expected, new_node)) {
         new_version = version + 1;
         if (new_version > ATOMIC_QUEUQ_VERSION_MASK) {
           new_version = 0;
         }
         new_tail = pack(new_node, version + 1);
+
+        // This is used to enforce memory order in a multi-threaded environment,
+        // ensuring data consistency and visibility across threads. Together,
+        // these fences implement the Release-Acquire memory model, guaranteeing
+        // proper synchronization of shared data and avoiding undefined
+        // behaviors caused by compiler or hardware optimizations in a
+        // concurrent environment.
         std::atomic_thread_fence(std::memory_order_release);
         _m_tail.compare_exchange_strong(tail_pack, new_tail);
         _m_size.fetch_add(1);
@@ -168,22 +214,50 @@ class AtomicQueue {
     assert_p(false, "enqueue failed");
   }
 
+  /**
+   * @brief Enqueues a value into the queue.
+   * @param value The value to enqueue. For lvalue reference.
+   */
   void enqueue(const ValueType &value) { enqueue(ValueType{value}); }
 
-  size_t size() const { return _m_size.load(); }
+  /**
+   * @brief Returns the size of the queue.
+   * @return The size of the queue.
+   */
+  [[nodiscard]]
+  size_t size() const {
+    return _m_size.load();
+  }
 
  private:
+  /**
+   * @brief Packs a node pointer and a version number into a single uintptr_t
+   * value.
+   * @param ptr The node pointer.
+   * @param version The version number.
+   * @return The packed value.
+   */
   static uintptr_t pack(Node *ptr, size_t version) {
     return (reinterpret_cast<uintptr_t>(ptr) &
             ~static_cast<uintptr_t>(ATOMIC_QUEUQ_VERSION_MASK)) |
            (version & ATOMIC_QUEUQ_VERSION_MASK);
   }
 
+  /**
+   * @brief Unpacks a packed value into a node pointer.
+   * @param packed The packed value.
+   * @return The unpacked node pointer.
+   */
   static Node *unpack_node(uintptr_t packed) {
     return reinterpret_cast<Node *>(
         packed & ~static_cast<uintptr_t>(ATOMIC_QUEUQ_VERSION_MASK));
   }
 
+  /**
+   * @brief Unpacks a packed value into a version number.
+   * @param packed The packed value.
+   * @return The unpacked version number.
+   */
   static size_t unpack_version(uintptr_t packed) {
     return packed & ATOMIC_QUEUQ_VERSION_MASK;
   }
