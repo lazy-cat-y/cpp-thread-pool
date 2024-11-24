@@ -93,8 +93,8 @@ class Channel {
   }
 
   ~Channel() {
-    Segment *cur = _m_queue_head;
-    Segment *next = nullptr;
+    // Segment *cur = _m_queue_head;
+    // Segment *next = nullptr;
 
     // while (cur != nullptr) {
     //   next = cur->_next;
@@ -163,11 +163,11 @@ class Channel {
 
   std::atomic<size_t> _m_segment_count;
   // head -> next is the first segment in the queue.
-  std::atomic<TaggedSegment> _m_queue_head;
-  std::atomic<TaggedSegment> _m_queue_tail;
+  // std::atomic<TaggedSegment> _m_queue_head;
+  // std::atomic<TaggedSegment> _m_queue_tail;
   // head -> next is the first segment in the pool.
-  std::atomic<TaggedSegment> _m_segment_pool_head;
-  std::atomic<TaggedSegment> _m_segment_pool_tail;
+  // std::atomic<TaggedSegment> _m_segment_pool_head;
+  // std::atomic<TaggedSegment> _m_segment_pool_tail;
   std::atomic<size_t> _m_segment_pool_size;
 };
 
