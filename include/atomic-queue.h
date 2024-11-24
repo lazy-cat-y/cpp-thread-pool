@@ -45,8 +45,8 @@ File: atomic-queue
 #include <utility>
 #include "m-define.h"
 
-#define ATOMIC_QUEUQ_VERSION_MASK 0xffff
-#define ATOMIC_QUEUE_ALIGNMENT_OFFSET 0x10000
+#define ATOMIC_QUEUQ_VERSION_MASK 0xff
+#define ATOMIC_QUEUE_ALIGNMENT_OFFSET 0x100
 
 #define ATOMIC_NODE_ALIGNMENT_SIZE (sizeof(Node) / \
             ATOMIC_QUEUE_ALIGNMENT_OFFSET + 1) * ATOMIC_QUEUE_ALIGNMENT_OFFSET)
@@ -79,14 +79,24 @@ class AtomicQueue {
   }
 
   [[nodiscard]] std::optional<ValueType> dequeue() {
+    uintptr_t head;
+    Node *head_node;
+    size_t version;
+    size_t new_version;
+
     while (true) {
-      uintptr_t head = _m_head.load();
-      Node *head_node = unpack_node(head);
-      size_t version = unpack_version(head);
+      head = _m_head.load();
+      head_node = unpack_node(head);
+      version = unpack_version(head);
 
       Node *next = head_node->_next.load();
       if (next == nullptr) {
         return std::nullopt;
+      }
+
+      new_version = version + 1;
+      if (new_version > ATOMIC_QUEUQ_VERSION_MASK) {
+        new_version = 0;
       }
 
       uintptr_t new_head = pack(next, version + 1);
@@ -118,21 +128,32 @@ class AtomicQueue {
   }
 
   void enqueue(ValueType &&value) {
-    Node *new_node = reinterpret_cast<Node *>(
-        aligned_alloc(ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE);
+    Node *new_node = reinterpret_cast<Node *>(aligned_alloc(
+        ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE);
     assert_p(new_node != nullptr, "new node is nullptr");
     new (new_node) Node(ValueType{std::move(value)});
+    uintptr_t tail_pack = _m_tail.load();
+    Node *tail = nullptr;
+    int version = 0;
+    Node *expected = nullptr;
+    uintptr_t new_tail = 0;
+    size_t new_version = 0;
+
 #if defined(DEBUG)
     assert_p(new_node->_next.load() == nullptr, "new node next is not null");
 #endif
     while (true) {
-      uintptr_t tail_pack = _m_tail.load();
-      Node *tail = unpack_node(tail_pack);
-      int version = unpack_version(tail_pack);
-      Node *expected = nullptr;
+      tail_pack = _m_tail.load();
+      tail = unpack_node(tail_pack);
+      version = unpack_version(tail_pack);
+      expected = nullptr;
 
       if (tail->_next.compare_exchange_weak(expected, new_node)) {
-        uintptr_t new_tail = pack(new_node, version + 1);
+        new_version = version + 1;
+        if (new_version > ATOMIC_QUEUQ_VERSION_MASK) {
+          new_version = 0;
+        }
+        new_tail = pack(new_node, version + 1);
         std::atomic_thread_fence(std::memory_order_release);
         _m_tail.compare_exchange_strong(tail_pack, new_tail);
         _m_size.fetch_add(1);

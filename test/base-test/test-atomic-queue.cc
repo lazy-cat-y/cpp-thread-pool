@@ -35,7 +35,7 @@ TEST_F(AtomicQueueTest, EnqueueAndDequeue) {
   EXPECT_EQ(queue.dequeue(), std::optional<int>(3));
 
   EXPECT_EQ(queue.size(), 0);
-  EXPECT_EQ(queue.dequeue(), std::nullopt);  // 队列为空
+  EXPECT_EQ(queue.dequeue(), std::nullopt);
 }
 
 TEST_F(AtomicQueueTest, MultiThreadedEnqueueDequeue) {
@@ -99,7 +99,7 @@ TEST_F(AtomicQueueTest, DifferentValueTypes) {
 }
 
 TEST_F(AtomicQueueTest, StressTest) {
-  const int num_elements = 1'0'000;
+  const int num_elements = 1'000'000;
 
   for (int i = 0; i < num_elements; ++i) {
     queue.enqueue(i);
