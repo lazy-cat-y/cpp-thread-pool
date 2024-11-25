@@ -40,10 +40,17 @@ File: channel
 #include <cassert>
 #include <cstddef>
 #include <cstdlib>
-#include <memory>
-#include <memory_resource>
 #include <optional>
 #include "atomic-queue.h"
+
+#if CPP_CURRENT_VERSION >= CPP_VERSION_17
+#include <memory_resource>
+#define ALLOCATOR(T) std::pmr::polymorphic_allocator<T>
+#else
+#include <memory>
+#define ALLOCATOR(T) std::allocator<T>
+#endif
+
 
 template <typename ValueType>
 class Segment {
@@ -61,11 +68,7 @@ class Segment {
 
   ~Segment() { _allocator.deallocate(_data, _write_index.load()); }
 
-#if __cplusplus >= 201703L
-  std::pmr::polymorphic_allocator<ValueType> _allocator;
-#else
-  std::allocator<ValueType> _allocator;
-#endif
+  ALLOCATOR(ValueType) _allocator;
   ValueType *_data;
   std::atomic<int> _write_index;
   std::atomic<int> _read_index;
@@ -90,7 +93,7 @@ class Channel {
         _m_segment_count{QUEUE_SIZE / SEGMENT_SIZE} {
     _m_local_memory_stack = _m_segment_allocator.allocate(_m_segment_count);
     for (size_t i = 0; i < _m_segment_count; ++i) {
-      _m_local_memory_stack[i] = Segment(SEGMENT_SIZE);
+      new (_m_local_memory_stack + i) Segment(SEGMENT_SIZE);
     }
     for (size_t i = 0; i < _m_segment_count; ++i) {
       push_segment_to_pool(i);
@@ -144,11 +147,7 @@ class Channel {
   tp::AtomicQueue<size_t> _m_segment_pool;
   // local memory stack for channel.
   Segment *_m_local_memory_stack;
-#if __cplusplus >= 201703L
-  std::pmr::polymorphic_allocator<Segment> _m_segment_allocator;
-#else
-  std::allocator<Segment> _m_segment_allocator;
-#endif
+  ALLOCATOR(Segment) _m_segment_allocator;
 
   std::atomic<size_t> _m_segment_pool_size;
 };

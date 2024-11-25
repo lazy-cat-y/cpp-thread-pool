@@ -48,6 +48,11 @@ File: m-define
         assert(condition);            \
     }
 
+#define CPP_CURRENT_VERSION __cplusplus
+#define CPP_VERSION_11 201103L
+#define CPP_VERSION_14 201402L
+#define CPP_VERSION_17 201703L
+
 #define FIXED_ARRAY_SIZE 0
 
 #define WORKER_STATUS_CREATED 0
