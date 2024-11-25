@@ -40,28 +40,36 @@ File: channel
 #include <cassert>
 #include <cstddef>
 #include <cstdlib>
+#include <memory>
+#include <memory_resource>
 #include <optional>
-
+#include "atomic-queue.h"
 
 template <typename ValueType>
 class Segment {
  public:
   explicit Segment(size_t size)
-      : _data{new ValueType[size]},
+      : _allocator{},
+        _data(_allocator.allocate(size)),
         _write_index{0},
         _read_index{0},
-        _next{nullptr} {}
+        _next{0} {
+    for (size_t i = 0; i < size; ++i) {
+      _data[i] = ValueType{};
+    }
+  }
 
+  ~Segment() { _allocator.deallocate(_data, _write_index.load()); }
+
+#if __cplusplus >= 201703L
+  std::pmr::polymorphic_allocator<ValueType> _allocator;
+#else
+  std::allocator<ValueType> _allocator;
+#endif
   ValueType *_data;
   std::atomic<int> _write_index;
   std::atomic<int> _read_index;
-  std::atomic<Segment *> _next;
-};
-
-template <typename ValueType>
-struct TaggedSegment {
-  Segment<ValueType> *_ptr;
-  std::atomic<int> _version;
+  std::atomic<size_t> _next;
 };
 
 template <typename ValueType, size_t QUEUE_SIZE = 100, size_t SEGMENT_SIZE = 10>
@@ -73,44 +81,27 @@ class Channel {
   static_assert(QUEUE_SIZE % SEGMENT_SIZE == 0,
                 "QUEUE_SIZE must be a multiple of SEGMENT_SIZE.");
   using Segment = Segment<ValueType>;
-  using TaggedSegment = TaggedSegment<ValueType>;
+  // using TaggedSegment = TaggedSegment<ValueType>;
 
  public:
   Channel()
-      : _m_segment_pool_size{_m_segment_count.load()},
-        _m_segment_count{QUEUE_SIZE / SEGMENT_SIZE}
-  // _m_queue_tail{_m_queue_head},
-  // _m_queue_head{new Segment(0)},
-  // _m_segment_pool_tail{_m_segment_pool_head},
-  // _m_segment_pool_head{new Segment(0)}
-  {
-    // Segment *cur = _m_segment_pool_tail;
-
-    // for (size_t i = 0; i < _m_segment_count.load(); ++i) {
-    //   cur->_next = new Segment(SEGMENT_SIZE);
-    //   cur = cur->_next;
-    // }
+      : _m_segment_allocator{},
+        _m_segment_pool_size{_m_segment_count.load()},
+        _m_segment_count{QUEUE_SIZE / SEGMENT_SIZE} {
+    _m_local_memory_stack = _m_segment_allocator.allocate(_m_segment_count);
+    for (size_t i = 0; i < _m_segment_count; ++i) {
+      _m_local_memory_stack[i] = Segment(SEGMENT_SIZE);
+    }
+    for (size_t i = 0; i < _m_segment_count; ++i) {
+      push_segment_to_pool(i);
+    }
   }
 
   ~Channel() {
-    // Segment *cur = _m_queue_head;
-    // Segment *next = nullptr;
-
-    // while (cur != nullptr) {
-    //   next = cur->_next;
-    //   delete[] cur->_data;
-    //   delete cur;
-    //   cur = next;
-    // }
-
-    // cur = _m_segment_pool_head;
-
-    // while (cur != nullptr) {
-    //   next = cur->_next;
-    //   delete[] cur->_data;
-    //   delete cur;
-    //   cur = next;
-    // }
+    for (size_t i = 0; i < _m_segment_count; ++i) {
+      _m_local_memory_stack[i].~Segment();
+    }
+    _m_segment_allocator.deallocate(_m_local_memory_stack, _m_segment_count);
   }
 
   Channel &operator=(const Channel &) = delete;
@@ -118,25 +109,24 @@ class Channel {
   Channel &operator=(Channel &&) = delete;
   Channel(Channel &&) = delete;
 
-  std::optional<ValueType> pop() {}
+  // NOTE: We store the offset of the segment in the queue, so we need to make
+  // sure that all operations are under the same memory order(or we can say that
+  // whole operations are atomic). Therefore we must use memory_order operations
+  // and spin the loop until the operation is successful. But!! We need to set a
+  // limit of spinning times to avoid deadlocks.
+  std::optional<ValueType> reverse() {}
 
-  template <typename T>
-  void push(T &&value) {}
+  bool submit(const ValueType &&value) {}
+
+  bool submit(const ValueType &value) {
+    submit(ValueType{value});
+  }
 
  private:
   // NOTE: The next pointer of the input segment should be set to nullptr.
-  void push_segment_to_pool(Segment *segment) {
+  void push_segment_to_pool(size_t _offset) {
 #if defined(DEBUG)
-    assert(segment != nullptr);
-    assert(segment->_next == nullptr);
 #endif
-    // Segment *expected_tail = _m_segment_pool_tail.load();
-    // while (
-    //     !_m_segment_pool_tail.compare_exchange_weak(expected_tail, segment))
-    //     {
-    // }
-    // expected_tail->_next.store(segment);
-    // _m_segment_pool_size.fetch_add(1);
   }
 
   Segment *pull_segment_from_pool() {
@@ -144,30 +134,22 @@ class Channel {
     assert(_m_segment_pool_size.load() >= 0);
 #endif
     while (true) {
-      // Segment *expected_head = _m_segment_pool_head->_next.load();
-      // // TODO: Add a scalar to avoid problem busy wait when there is only one
-      // // thread to use the channel.
-      // if (expected_head == nullptr) {
-      //   std::this_thread::yield();
-      //   continue;
-      // }
-
-      // if (_m_segment_pool_head->_next.compare_exchange_weak(
-      //         expected_head, expected_head->_next)) {
-      //   _m_segment_pool_size.fetch_sub(1);
-      //   expected_head->_next = nullptr;
-      //   return expected_head;
-      // }
     }
   }
 
   std::atomic<size_t> _m_segment_count;
-  // head -> next is the first segment in the queue.
-  // std::atomic<TaggedSegment> _m_queue_head;
-  // std::atomic<TaggedSegment> _m_queue_tail;
-  // head -> next is the first segment in the pool.
-  // std::atomic<TaggedSegment> _m_segment_pool_head;
-  // std::atomic<TaggedSegment> _m_segment_pool_tail;
+
+  // Save the offset of the first segment in the local memory stack.
+  tp::AtomicQueue<size_t> _m_queue;
+  tp::AtomicQueue<size_t> _m_segment_pool;
+  // local memory stack for channel.
+  Segment *_m_local_memory_stack;
+#if __cplusplus >= 201703L
+  std::pmr::polymorphic_allocator<Segment> _m_segment_allocator;
+#else
+  std::allocator<Segment> _m_segment_allocator;
+#endif
+
   std::atomic<size_t> _m_segment_pool_size;
 };
 

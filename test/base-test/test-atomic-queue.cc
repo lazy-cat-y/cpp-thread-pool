@@ -7,7 +7,7 @@
 
 class AtomicQueueTest : public ::testing::Test {
  protected:
-  AtomicQueue<int> queue;
+  tp::AtomicQueue<int> queue;
 
   void SetUp() override {}
 
@@ -85,7 +85,7 @@ TEST_F(AtomicQueueTest, DequeueFromEmptyQueue) {
 }
 
 TEST_F(AtomicQueueTest, DifferentValueTypes) {
-  AtomicQueue<std::string> string_queue;
+  tp::AtomicQueue<std::string> string_queue;
 
   string_queue.enqueue("hello");
   string_queue.enqueue(std::string("world"));

@@ -62,6 +62,9 @@ File: atomic-queue
  * result, the version number is unlikely to reach 255 due to the ring size
  * constraints.
  */
+
+namespace tp {
+
 #define ATOMIC_QUEUQ_VERSION_MASK 0xff
 #define ATOMIC_QUEUE_ALIGNMENT_OFFSET 0x100
 
@@ -221,6 +224,28 @@ class AtomicQueue {
   void enqueue(const ValueType &value) { enqueue(ValueType{value}); }
 
   /**
+   * @brief Returns the end value of the queue without removing it.
+   * @return An optional value. If the queue is empty, returns std::nullopt.
+   */
+  [[nodiscard]]
+  std::optional<ValueType> end() {
+    while (true) {
+      uintptr_t tail = _m_tail.load();
+      Node *tail_node = unpack_node(tail);
+      size_t version = unpack_version(tail);
+
+      if (tail_node->_next.load() == nullptr) {
+        return std::nullopt;
+      }
+
+      ValueType value = tail_node->_value;
+      if (tail == _m_tail.load() && version == unpack_version(tail)) {
+        return value;
+      }
+    }
+  }
+
+  /**
    * @brief Returns the size of the queue.
    * @return The size of the queue.
    */
@@ -266,5 +291,7 @@ class AtomicQueue {
   std::atomic<uintptr_t> _m_tail;
   std::atomic<size_t> _m_size;
 };
+
+}  // namespace tp
 
 #endif  // ATOMIC_QUEUE_H
