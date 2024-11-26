@@ -69,7 +69,7 @@ namespace tp {
 #define ATOMIC_QUEUE_ALIGNMENT_OFFSET 0x100
 
 #define ATOMIC_NODE_ALIGNMENT_SIZE (sizeof(Node) / \
-            ATOMIC_QUEUE_ALIGNMENT_OFFSET + 1) * ATOMIC_QUEUE_ALIGNMENT_OFFSET)
+            ATOMIC_QUEUE_ALIGNMENT_OFFSET + 1) * ATOMIC_QUEUE_ALIGNMENT_OFFSET
 
 /**
  * @brief A lock-free queue implementation using atomic operations.
@@ -88,7 +88,7 @@ class AtomicQueue {
  public:
   AtomicQueue() : _m_size{0} {
     Node *dummy = reinterpret_cast<Node *>(
-        aligned_alloc(ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE);
+        aligned_alloc(ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE));
     assert_p(dummy != nullptr, "dummy node is nullptr");
     new (dummy) Node(ValueType{});
     _m_head.store(pack(dummy, 0));
@@ -168,7 +168,7 @@ class AtomicQueue {
    */
   void enqueue(ValueType &&value) {
     Node *new_node = reinterpret_cast<Node *>(aligned_alloc(
-        ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE);
+        ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE));
 #if defined(DEBUG)
     assert_p(new_node != nullptr, "new node is nullptr");
 #endif
@@ -228,7 +228,7 @@ class AtomicQueue {
    * @return An optional value. If the queue is empty, returns std::nullopt.
    */
   [[nodiscard]]
-  std::optional<ValueType> end() {
+  std::optional<ValueType> last() {
     while (true) {
       uintptr_t tail = _m_tail.load();
       Node *tail_node = unpack_node(tail);
