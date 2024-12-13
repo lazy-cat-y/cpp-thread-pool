@@ -52,6 +52,8 @@ File: channel
 #define ALLOCATOR(T) std::allocator<T>
 #endif
 
+namespace tp {
+
 template <typename ValueType>
 class Segment {
   // FIXME: If the ValueType is a string or a fixed-size array, we need to
@@ -74,10 +76,15 @@ class Segment {
   Segment(Segment &&) = delete;
   Segment &operator=(Segment &&) = delete;
 
-  ~Segment() { _allocator.deallocate(_data, _size); }
+  ~Segment() {
+    for (size_t i = 0; i < _size; ++i) {
+      _data[i].~ValueType();
+    }
+    _allocator.deallocate(_data, _size);
+  }
 
   ALLOCATOR(ValueType) _allocator;
-  ValueType *_data;
+  alignas(alignof(ValueType)) ValueType *_data;
   std::atomic<int> _write_index;
   std::atomic<int> _read_index;
   const size_t _size;
@@ -93,7 +100,6 @@ class Channel {
   static_assert(QUEUE_SIZE % SEGMENT_SIZE == 0,
                 "QUEUE_SIZE must be a multiple of SEGMENT_SIZE.");
   using Segment = Segment<ValueType>;
-  // using TaggedSegment = TaggedSegment<ValueType>;
 
  public:
   Channel()
@@ -142,8 +148,8 @@ class Channel {
 
       segment = &_m_local_memory_stack[offset.value()];
 
-      write_index = segment->_write_index.load(std::memory_order_relaxed);
-      read_index = segment->_read_index.load(std::memory_order_relaxed);
+      write_index = segment->_write_index.load(std::memory_order_acquire);
+      read_index = segment->_read_index.load(std::memory_order_acquire);
       if (write_index - read_index > 0) {
         if (segment->_read_index.compare_exchange_strong(
                 read_index, read_index + 1, std::memory_order_acq_rel)) {
@@ -155,8 +161,8 @@ class Channel {
         }
       } else {
         return std::nullopt;
-      } // end of else.
-    } // end of while loop.
+      }  // end of else.
+    }  // end of while loop.
     return std::nullopt;
   }
 
@@ -178,8 +184,8 @@ class Channel {
 
       segment = &_m_local_memory_stack[offset.value()];
 
-      write_index = segment->_write_index.load(std::memory_order_relaxed);
-      read_index = segment->_read_index.load(std::memory_order_relaxed);
+      write_index = segment->_write_index.load(std::memory_order_acquire);
+      read_index = segment->_read_index.load(std::memory_order_acquire);
 
       if (write_index - read_index < SEGMENT_SIZE) {
         if (segment->_write_index.compare_exchange_strong(
@@ -195,10 +201,9 @@ class Channel {
     return false;
   }
 
-  bool submit(const ValueType &value) { submit(ValueType{value}); }
+  bool submit(const ValueType &value) { return submit(ValueType{value}); }
 
  private:
-  // NOTE: The next pointer of the input segment should be set to nullptr.
   bool push_segment_to_pool() {
     std::optional<size_t> offset = _m_queue.dequeue();
     if (!offset.has_value()) {
@@ -238,5 +243,7 @@ class Channel {
 
   std::atomic<size_t> _m_segment_pool_size;
 };
+
+}  // namespace tp
 
 #endif  // CHANNEL_H

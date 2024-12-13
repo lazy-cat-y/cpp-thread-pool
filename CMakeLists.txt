@@ -30,6 +30,21 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 option(ENABLE_BASE_TEST "Enable building base tests using Google Test" ON)
 option(ENABLE_BENCHMARK "Enable building benchmarks" OFF)
 
+# link the library atomic for 128 bit atomic operations
+find_library(LIBATOMIC_LIBRARY
+    atomic
+    HINTS
+    /usr/lib/aarch64-linux-gnu
+    /usr/lib/gcc/aarch64-linux-gnu/13
+)
+if (LIBATOMIC_LIBRARY)
+    message(STATUS "Found libatomic: ${LIBATOMIC_LIBRARY}")
+    link_libraries(${LIBATOMIC_LIBRARY})
+else()
+    message(FATAL_ERROR "libatomic not found")
+endif()
+
+
 # add the executable
 if (ENABLE_BASE_TEST)
     message(STATUS "Base tests are enabled. Adding Google Test.")

@@ -56,7 +56,7 @@ File: atomic-queue
  *
  * NOTE: The version number is limited to 8 bits, meaning the maximum value is
  * 255. If the version number reaches 255, it will reset to 0. This limitation
- * is acceptable because this class is designed for use with channels in the
+ * is acceptable because this class is designed for using with channels in the
  * worker and worker pool. In our design, worker tasks operate based on
  * channels, which use a buffer pool to store tasks and unused memory. As a
  * result, the version number is unlikely to reach 255 due to the ring size
@@ -65,11 +65,12 @@ File: atomic-queue
 
 namespace tp {
 
-#define ATOMIC_QUEUQ_VERSION_MASK 0xff
-#define ATOMIC_QUEUE_ALIGNMENT_OFFSET 0x100
+#define ATOMIC_QUEUQ_VERSION_MASK 0xff       // NOLINT
+#define ATOMIC_QUEUE_ALIGNMENT_OFFSET 0x100  // NOLINT
 
-#define ATOMIC_NODE_ALIGNMENT_SIZE (sizeof(Node) / \
-            ATOMIC_QUEUE_ALIGNMENT_OFFSET + 1) * ATOMIC_QUEUE_ALIGNMENT_OFFSET
+#define ATOMIC_NODE_ALIGNMENT_SIZE                      \
+  ((sizeof(Node) / ATOMIC_QUEUE_ALIGNMENT_OFFSET + 1) * \
+   ATOMIC_QUEUE_ALIGNMENT_OFFSET)
 
 /**
  * @brief A lock-free queue implementation using atomic operations.
@@ -78,22 +79,39 @@ namespace tp {
 template <typename ValueType>
 class AtomicQueue {
   struct Node {
+    typename std::aligned_storage<sizeof(ValueType), alignof(ValueType)>::type
+        VALUE;
     ValueType _value;
     std::atomic<Node *> _next;
 
     explicit Node() : _value{}, _next{nullptr} {}
-    explicit Node(const ValueType &value) : _value{value}, _next{nullptr} {}
+    explicit Node(const ValueType &value) : _next{nullptr} {
+      new (&_value) ValueType{value};
+    }
+
+    Node(const Node &) = delete;
+    Node &operator=(const Node &) = delete;
+    Node(Node &&) = delete;
+    Node &operator=(Node &&) = delete;
+
+    ~Node() { _value.~ValueType(); }
   };
 
  public:
-  AtomicQueue() : _m_size{0} {
-    Node *dummy = reinterpret_cast<Node *>(
-        aligned_alloc(ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE));
+  AtomicQueue() : _m_size{0} {               // NOLINT
+    Node *dummy = reinterpret_cast<Node *>(  // NOLINT
+        aligned_alloc(ATOMIC_QUEUE_ALIGNMENT_OFFSET,
+                      ATOMIC_NODE_ALIGNMENT_SIZE));
     assert_p(dummy != nullptr, "dummy node is nullptr");
     new (dummy) Node(ValueType{});
     _m_head.store(pack(dummy, 0));
     _m_tail.store(pack(dummy, 0));
   }
+
+  AtomicQueue(const AtomicQueue &) = delete;
+  AtomicQueue &operator=(const AtomicQueue &) = delete;
+  AtomicQueue(AtomicQueue &&) = delete;
+  AtomicQueue &operator=(AtomicQueue &&) = delete;
 
   ~AtomicQueue() {
     while (dequeue().has_value());
@@ -107,10 +125,10 @@ class AtomicQueue {
    * @return An optional value. If the queue is empty, returns std::nullopt.
    */
   [[nodiscard]] std::optional<ValueType> dequeue() {
-    uintptr_t head;
-    Node *head_node;
-    size_t version;
-    size_t new_version;
+    uintptr_t head = 0;
+    Node *head_node = nullptr;
+    size_t version = 0;
+    size_t new_version = 0;
 
     while (true) {
       head = _m_head.load();
@@ -167,7 +185,7 @@ class AtomicQueue {
    * @param value The value to enqueue. For rvalue reference.
    */
   void enqueue(ValueType &&value) {
-    Node *new_node = reinterpret_cast<Node *>(aligned_alloc(
+    Node *new_node = reinterpret_cast<Node *>(aligned_alloc(  // NOLINT
         ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE));
 #if defined(DEBUG)
     assert_p(new_node != nullptr, "new node is nullptr");
@@ -214,7 +232,7 @@ class AtomicQueue {
         return;
       }
     }
-    assert_p(false, "enqueue failed");
+    assert_p(false, "enqueue failed");  // NOLINT should not reach here.
   }
 
   /**

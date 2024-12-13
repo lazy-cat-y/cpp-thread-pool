@@ -48,6 +48,9 @@ File: m-define
         assert(condition);            \
     }
 
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#define likely(x) __builtin_expect(!!(x), 1)
+
 #define CPP_CURRENT_VERSION __cplusplus
 #define CPP_VERSION_11 201103L
 #define CPP_VERSION_14 201402L
