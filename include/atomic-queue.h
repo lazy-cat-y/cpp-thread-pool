@@ -137,15 +137,23 @@ class VersionPointer {
         return true;
       }
     }
-#endif
+#endif /* !USE_LIBATOMIC */
   }
 
   PointerType *get_pointer() const {
+#if !defined(USE_LIBATOMIC)
+    return reinterpret_cast<PointerType *>(load_current()._m_ptr);
+#else
     return _m_data.load(std::memory_order_acquire)._m_ptr;
+#endif /* !USE_LIBATOMIC */
   }
 
   uint64_t get_version() const {
+#if !defined(USE_LIBATOMIC)
+    return load_current()._m_version;
+#else
     return _m_data.load(std::memory_order_acquire)._m_version;
+#endif /* !USE_LIBATOMIC */
   }
 
  protected:
@@ -205,7 +213,7 @@ class VersionPointer {
 
   Pointer load_current() {
 #if defined(__x86_64__) || defined(__i386__)
-    Pointer _m_current = _m_data; 
+    Pointer _m_current = _m_data;
     return _m_current;
 #elif defined(__aarch64__)
     Pointer _m_current;
@@ -224,7 +232,7 @@ class VersionPointer {
 
   std::atomic<Pointer> _m_data __attribute__((aligned(16)));
 
-#endif
+#endif /* !USE_LIBATOMIC */
 };
 
 template <typename DataType>
