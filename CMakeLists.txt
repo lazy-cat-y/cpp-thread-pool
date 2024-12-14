@@ -39,6 +39,7 @@ find_library(LIBATOMIC_LIBRARY
 )
 if (LIBATOMIC_LIBRARY)
     message(STATUS "Found libatomic: ${LIBATOMIC_LIBRARY}")
+    add_definitions(-DUSE_LIBATOMIC)
     link_libraries(${LIBATOMIC_LIBRARY})
 else()
     message(FATAL_ERROR "libatomic not found")

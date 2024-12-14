@@ -41,6 +41,7 @@ File: atomic-queue
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 #include <optional>
 #include <utility>
 #include "def.h"
@@ -65,248 +66,200 @@ File: atomic-queue
 
 namespace tp {
 
-#define ATOMIC_QUEUQ_VERSION_MASK 0xff       // NOLINT
-#define ATOMIC_QUEUE_ALIGNMENT_OFFSET 0x100  // NOLINT
+template <typename PointerType>
+class VersionPointer {
+  struct alignas(16) Pointer {
+#if !defined(USE_LIBATOMIC)
+    void *_m_ptr;
+#else
+    PointerType *_m_ptr;
+#endif
+    uint64_t _m_version;
 
-#define ATOMIC_NODE_ALIGNMENT_SIZE                      \
-  ((sizeof(Node) / ATOMIC_QUEUE_ALIGNMENT_OFFSET + 1) * \
-   ATOMIC_QUEUE_ALIGNMENT_OFFSET)
-
-/**
- * @brief A lock-free queue implementation using atomic operations.
- * @tparam ValueType The type of the value stored in the queue.
- */
-template <typename ValueType>
-class AtomicQueue {
-  struct Node {
-    typename std::aligned_storage<sizeof(ValueType), alignof(ValueType)>::type
-        VALUE;
-    ValueType _value;
-    std::atomic<Node *> _next;
-
-    explicit Node() : _value{}, _next{nullptr} {}
-    explicit Node(const ValueType &value) : _next{nullptr} {
-      new (&_value) ValueType{value};
+    bool operator==(const Pointer &_m_other) const {
+      return _m_ptr == _m_other._m_ptr && _m_version == _m_other._m_version;
     }
-
-    Node(const Node &) = delete;
-    Node &operator=(const Node &) = delete;
-    Node(Node &&) = delete;
-    Node &operator=(Node &&) = delete;
-
-    ~Node() { _value.~ValueType(); }
   };
 
+  static_assert(sizeof(Pointer) == 16, "Pointer is not 16 bytes");
+  static_assert(alignof(Pointer) >= 16, "Pointer is not 16-byte aligned");
+
  public:
-  AtomicQueue() : _m_size{0} {               // NOLINT
-    Node *dummy = reinterpret_cast<Node *>(  // NOLINT
-        aligned_alloc(ATOMIC_QUEUE_ALIGNMENT_OFFSET,
-                      ATOMIC_NODE_ALIGNMENT_SIZE));
-    assert_p(dummy != nullptr, "dummy node is nullptr");
-    new (dummy) Node(ValueType{});
-    _m_head.store(pack(dummy, 0));
-    _m_tail.store(pack(dummy, 0));
-  }
+  explicit VersionPointer() : _m_data({nullptr, 0}) {}
 
-  AtomicQueue(const AtomicQueue &) = delete;
-  AtomicQueue &operator=(const AtomicQueue &) = delete;
-  AtomicQueue(AtomicQueue &&) = delete;
-  AtomicQueue &operator=(AtomicQueue &&) = delete;
+  explicit VersionPointer(PointerType *_m_ptr) : _m_data({_m_ptr, 0}) {}
 
-  ~AtomicQueue() {
-    while (dequeue().has_value());
-    Node *dummy = unpack_node(_m_head.load());
-    dummy->~Node();
-    free(dummy);
-  }
+  VersionPointer(const VersionPointer &other) = delete;
+  VersionPointer &operator=(const VersionPointer &other) = delete;
+  VersionPointer(VersionPointer &&other) = delete;
+  VersionPointer &operator=(VersionPointer &&other) = delete;
 
-  /**
-   * @brief Dequeues a value from the queue.
-   * @return An optional value. If the queue is empty, returns std::nullopt.
-   */
-  [[nodiscard]] std::optional<ValueType> dequeue() {
-    uintptr_t head = 0;
-    Node *head_node = nullptr;
-    size_t version = 0;
-    size_t new_version = 0;
+  ~VersionPointer() = default;
+
+  bool update(PointerType *_m_expected_pointer, PointerType *_m_new_pointer) {
+#if !defined(USE_LIBATOMIC)
+    Pointer _m_expected;
+    Pointer _m_desired;
+
+    _m_expected._m_ptr = reinterpret_cast<void *>(_m_expected_pointer);
+    _m_expected._m_version = 0;
 
     while (true) {
-      head = _m_head.load();
-      head_node = unpack_node(head);
-      version = unpack_version(head);
+      Pointer _m_current = load_current();
 
-      Node *next = head_node->_next.load();
-      if (next == nullptr) {
-        return std::nullopt;
+      if (_m_current._m_ptr != _m_expected._m_ptr) {
+        return false;
       }
 
-      // Update the version number.
-      // If the version number reaches the maximum value, reset it to 0.
-      new_version = version + 1;
-      if (new_version > ATOMIC_QUEUQ_VERSION_MASK) {
-        new_version = 0;
+      _m_desired._m_ptr = reinterpret_cast<void *>(_m_new_pointer);
+      _m_desired._m_version = _m_current._m_version + 1;
+
+      if (compare_exchange_16_bytes(_m_expected, _m_desired)) {
+        return true;
       }
 
-      // Try to update the head pointer.
-      uintptr_t new_head = pack(next, version + 1);
-      if (_m_head.compare_exchange_weak(head, new_head)) {
-        ValueType value = std::move(next->_value);
-        head_node->~Node();
-        free(head_node);
-        _m_size.fetch_sub(1);
-        return value;
-      }
+      _m_expected = _m_current;
     }
-  }
 
-  /**
-   * @brief Returns the front value of the queue without removing it.
-   * @return An optional value. If the queue is empty, returns std::nullopt.
-   */
-  [[nodiscard]] std::optional<ValueType> front() {
+#else
+    Pointer _m_expected = _m_data.load(std::memory_order_acquire);
+
     while (true) {
-      uintptr_t head = _m_head.load();
-      Node *head_node = unpack_node(head);
-      size_t version = unpack_version(head);
-
-      if (head_node->_next.load() == nullptr) {
-        return std::nullopt;
+      if (_m_expected._m_ptr != _m_expected_pointer) {
+        return false;
       }
 
-      ValueType value = head_node->_next.load()->_value;
-      if (head == _m_head.load() && version == unpack_version(head)) {
-        return value;
+      Pointer _m_new = {_m_new_pointer, _m_expected._m_version + 1};
+
+      if (_m_data.compare_exchange_weak(_m_expected, _m_new,
+                                        std::memory_order_acq_rel,
+                                        std::memory_order_acquire)) {
+        return true;
       }
     }
-  }
-
-  /**
-   * @brief Enqueues a value into the queue.
-   * @param value The value to enqueue. For rvalue reference.
-   */
-  void enqueue(ValueType &&value) {
-    Node *new_node = reinterpret_cast<Node *>(aligned_alloc(  // NOLINT
-        ATOMIC_QUEUE_ALIGNMENT_OFFSET, ATOMIC_NODE_ALIGNMENT_SIZE));
-#if defined(DEBUG)
-    assert_p(new_node != nullptr, "new node is nullptr");
 #endif
-    new (new_node) Node(ValueType{std::move(value)});
-    uintptr_t tail_pack = _m_tail.load();
-    Node *tail = nullptr;
-    int version = 0;
-    Node *expected = nullptr;
-    uintptr_t new_tail = 0;
-    size_t new_version = 0;
-
-#if defined(DEBUG)
-    assert_p(new_node->_next.load() == nullptr, "new node next is not null");
-#endif
-    while (true) {
-      tail_pack = _m_tail.load();
-      tail = unpack_node(tail_pack);
-      version = unpack_version(tail_pack);
-      expected = nullptr;
-
-      // Try to update the tail pointer.
-      if (tail->_next.compare_exchange_weak(expected, new_node)) {
-        new_version = version + 1;
-        if (new_version > ATOMIC_QUEUQ_VERSION_MASK) {
-          new_version = 0;
-        }
-        new_tail = pack(new_node, version + 1);
-
-        // This is used to enforce memory order in a multi-threaded environment,
-        // ensuring data consistency and visibility across threads. Together,
-        // these fences implement the Release-Acquire memory model, guaranteeing
-        // proper synchronization of shared data and avoiding undefined
-        // behaviors caused by compiler or hardware optimizations in a
-        // concurrent environment.
-        std::atomic_thread_fence(std::memory_order_release);
-        _m_tail.compare_exchange_strong(tail_pack, new_tail);
-        _m_size.fetch_add(1);
-        std::atomic_thread_fence(std::memory_order_acquire);
-#if defined(DEBUG)
-        assert_p(unpack_node(_m_tail.load())->_next.load() == nullptr,
-                 "tail is not the last node");
-#endif
-        return;
-      }
-    }
-    assert_p(false, "enqueue failed");  // NOLINT should not reach here.
   }
 
-  /**
-   * @brief Enqueues a value into the queue.
-   * @param value The value to enqueue. For lvalue reference.
-   */
-  void enqueue(const ValueType &value) { enqueue(ValueType{value}); }
-
-  /**
-   * @brief Returns the end value of the queue without removing it.
-   * @return An optional value. If the queue is empty, returns std::nullopt.
-   */
-  [[nodiscard]]
-  std::optional<ValueType> last() {
-    while (true) {
-      uintptr_t tail = _m_tail.load();
-      Node *tail_node = unpack_node(tail);
-      size_t version = unpack_version(tail);
-
-      if (tail_node->_next.load() == nullptr) {
-        return std::nullopt;
-      }
-
-      ValueType value = tail_node->_value;
-      if (tail == _m_tail.load() && version == unpack_version(tail)) {
-        return value;
-      }
-    }
+  PointerType *get_pointer() const {
+    return _m_data.load(std::memory_order_acquire)._m_ptr;
   }
 
-  /**
-   * @brief Returns the size of the queue.
-   * @return The size of the queue.
-   */
-  [[nodiscard]]
-  size_t size() const {
-    return _m_size.load();
+  uint64_t get_version() const {
+    return _m_data.load(std::memory_order_acquire)._m_version;
   }
 
+ protected:
  private:
-  /**
-   * @brief Packs a node pointer and a version number into a single uintptr_t
-   * value.
-   * @param ptr The node pointer.
-   * @param version The version number.
-   * @return The packed value.
-   */
-  static uintptr_t pack(Node *ptr, size_t version) {
-    return (reinterpret_cast<uintptr_t>(ptr) &
-            ~static_cast<uintptr_t>(ATOMIC_QUEUQ_VERSION_MASK)) |
-           (version & ATOMIC_QUEUQ_VERSION_MASK);
+#if !defined(USE_LIBATOMIC)
+  bool compare_exchange_16_bytes(Pointer &_m_expected, Pointer &_m_desired) {
+#if defined(__x86_64__) || defined(__i386__)
+    bool _m_result = false;
+
+    __asm__ __volatile__("lock cmpxchg16b %1"
+                         : "=@ccz"(_m_result), "+m"(this->_m_data),
+                           "+a"(_m_expected._m_ptr),
+                           "+d"(_m_expected._m_version)
+                         : "b"(_m_desired._m_ptr), "c"(_m_desired._m_version)
+                         : "memory");
+    return _m_result;
+// arm
+#elif defined(__aarch64__)
+    uint64_t _m_expected_ptr = reinterpret_cast<uint64_t>(_m_expected._m_ptr);
+    uint64_t _m_expected_version = _m_expected._m_version;
+    uint64_t _m_desired_ptr = reinterpret_cast<uint64_t>(_m_desired._m_ptr);
+    uint64_t _m_desired_version = _m_desired._m_version;
+    uint64_t _m_result = 0;
+
+    asm volatile(
+        "ldxp x0, x1, [%2]\n"       // Load the current value from _m_data
+        "cmp x0, %3\n"              // Compare the pointer part
+        "cset %w0, eq\n"            // Set result to 1 if equal
+        "cmp x1, %4\n"              // Compare the version part
+        "csetm %w0, eq\n"           // Update result only if both match
+        "b.ne 1f\n"                 // If not equal, branch to end
+        "stxp %w0, %5, %6, [%2]\n"  // Attempt to store desired value
+        "cbnz %w0, 1f\n"            // If store failed, branch to end
+        "1:\n"
+        : "=&r"(_m_result)           // Output
+        : "r"(this), "r"(&_m_data),  // Inputs
+          "r"(_m_expected_ptr), "r"(_m_expected_version), "r"(_m_desired_ptr),
+          "r"(_m_desired_version)
+        : "x0", "x1", "cc", "memory"  // Clobbered registers
+    );
+
+    if (_m_result == 0) {
+      _m_expected._m_ptr = reinterpret_cast<PointerType *>(_m_desired._m_ptr);
+      _m_expected._m_version = _m_desired._m_version;
+      return true;
+    }
+
+    asm volatile("ldxp %0, %1, [%2]"
+                 : "=r"(_m_expected._m_ptr), "=r"(_m_expected._m_version)
+                 : "r"(&_m_data)
+                 : "memory");
+    return false;
+#else
+#error "Unsupported platform for load_current"
+#endif
+  };
+
+  Pointer load_current() {
+#if defined(__x86_64__) || defined(__i386__)
+    Pointer _m_current = _m_data; 
+    return _m_current;
+#elif defined(__aarch64__)
+    Pointer _m_current;
+    asm volatile("ldxp %0, %1, [%2]"
+                 : "=r"(_m_current._m_ptr), "=r"(_m_current._m_version)
+                 : "r"(&_m_data)
+                 : "memory");
+    return _m_current;
+#else
+#error "Unsupported platform for load_current"
+#endif
   }
 
-  /**
-   * @brief Unpacks a packed value into a node pointer.
-   * @param packed The packed value.
-   * @return The unpacked node pointer.
-   */
-  static Node *unpack_node(uintptr_t packed) {
-    return reinterpret_cast<Node *>(
-        packed & ~static_cast<uintptr_t>(ATOMIC_QUEUQ_VERSION_MASK));
-  }
+  alignas(16) Pointer _m_data;
+#else
 
-  /**
-   * @brief Unpacks a packed value into a version number.
-   * @param packed The packed value.
-   * @return The unpacked version number.
-   */
-  static size_t unpack_version(uintptr_t packed) {
-    return packed & ATOMIC_QUEUQ_VERSION_MASK;
-  }
+  std::atomic<Pointer> _m_data __attribute__((aligned(16)));
 
-  std::atomic<uintptr_t> _m_head;
-  std::atomic<uintptr_t> _m_tail;
+#endif
+};
+
+template <typename DataType>
+class AtomicQueue {
+ public:
+  explicit AtomicQueue() : _m_head(nullptr), _m_tail(nullptr), _m_size(0) {}
+
+  AtomicQueue(const AtomicQueue &other) = delete;
+  AtomicQueue &operator=(const AtomicQueue &other) = delete;
+  AtomicQueue(AtomicQueue &&other) = delete;
+  AtomicQueue &operator=(AtomicQueue &&other) = delete;
+
+  // TODO: Implement the destructor
+  ~AtomicQueue() = default;
+
+  bool push(DataType &&data) {}
+
+  bool push(const DataType &data) {}
+
+  std::optional<DataType> pop() {}
+
+  DataType front() const {}
+
+  DataType back() const {}
+
+  bool empty() const {}
+
+  size_t size() const {}
+
+  void clear() {}
+
+ protected:
+ private:
+  VersionPointer<DataType> _m_head;
+  VersionPointer<DataType> _m_tail;
   std::atomic<size_t> _m_size;
 };
 
