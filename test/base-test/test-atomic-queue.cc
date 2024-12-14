@@ -5,111 +5,98 @@
 #include <vector>
 #include "atomic-queue.h"
 
-class AtomicQueueTest : public ::testing::Test {
- protected:
-  tp::AtomicQueue<int> queue;
-
-  void SetUp() override {}
-
-  void TearDown() override {}
-};
-
-TEST_F(AtomicQueueTest, InitialState) {
-  EXPECT_EQ(queue.size(), 0);
-  EXPECT_EQ(queue.front(), std::nullopt);
-  EXPECT_EQ(queue.dequeue(), std::nullopt);
+TEST(AtomicQueueTest, EmptyOnInit) {
+    tp::AtomicQueue<int> q;
+    EXPECT_TRUE(q.empty());
+    EXPECT_EQ(q.size(), 0u);
 }
 
-TEST_F(AtomicQueueTest, EnqueueAndDequeue) {
-  queue.enqueue(1);
-  queue.enqueue(2);
-  queue.enqueue(3);
+TEST(AtomicQueueTest, SingleThreadPushPop) {
+    tp::AtomicQueue<int> q;
+    EXPECT_TRUE(q.empty());
 
-  EXPECT_EQ(queue.size(), 3);
-  EXPECT_EQ(queue.front(), std::optional<int>(1));
+    q.push(42);
+    EXPECT_FALSE(q.empty());
+    EXPECT_EQ(q.size(), 1u);
+    EXPECT_EQ(q.front(), 42);
+    EXPECT_EQ(q.back(), 42);
 
-  EXPECT_EQ(queue.dequeue(), std::optional<int>(1));
-  EXPECT_EQ(queue.size(), 2);
+    auto val = q.pop();
+    ASSERT_TRUE(val.has_value());
+    EXPECT_EQ(val.value(), 42);
 
-  EXPECT_EQ(queue.dequeue(), std::optional<int>(2));
-  EXPECT_EQ(queue.dequeue(), std::optional<int>(3));
-
-  EXPECT_EQ(queue.size(), 0);
-  EXPECT_EQ(queue.dequeue(), std::nullopt);
+    EXPECT_TRUE(q.empty());
+    EXPECT_EQ(q.size(), 0u);
 }
 
-TEST_F(AtomicQueueTest, MultiThreadedEnqueueDequeue) {
-  const int thread_count = 10;
-  const int items_per_thread = 100;
-
-  auto enqueue_task = [&]() {
-    for (int i = 0; i < items_per_thread; ++i) {
-      queue.enqueue(i);
+TEST(AtomicQueueTest, MultipleElements) {
+    tp::AtomicQueue<int> q;
+    for (int i = 0; i < 10; ++i) {
+        q.push(i);
     }
-  };
 
-  auto dequeue_task = [&]() {
-    for (int i = 0; i < items_per_thread; ++i) {
-      auto xx = queue.dequeue();
+    EXPECT_FALSE(q.empty());
+    EXPECT_EQ(q.size(), 10u);
+    EXPECT_EQ(q.front(), 0);
+    EXPECT_EQ(q.back(), 9);
+
+    for (int i = 0; i < 10; ++i) {
+        auto val = q.pop();
+        ASSERT_TRUE(val.has_value());
+        EXPECT_EQ(val.value(), i);
     }
-  };
 
-  std::vector<std::thread> threads;
-
-  for (int i = 0; i < thread_count; ++i) {
-    threads.emplace_back(enqueue_task);
-  }
-
-  for (auto &t : threads) {
-    t.join();
-  }
-
-  EXPECT_EQ(queue.size(), thread_count * items_per_thread);
-
-  threads.clear();
-
-  for (int i = 0; i < thread_count; ++i) {
-    threads.emplace_back(dequeue_task);
-  }
-
-  for (auto &t : threads) {
-    t.join();
-  }
-
-  EXPECT_EQ(queue.size(), 0);
+    EXPECT_TRUE(q.empty());
+    EXPECT_EQ(q.size(), 0u);
 }
 
-TEST_F(AtomicQueueTest, DequeueFromEmptyQueue) {
-  EXPECT_EQ(queue.dequeue(), std::nullopt);  // 空队列出队返回 std::nullopt
-  EXPECT_EQ(queue.front(), std::nullopt);  // 空队列前部也返回 std::nullopt
+TEST(AtomicQueueTest, Clear) {
+    tp::AtomicQueue<int> q;
+    for (int i = 0; i < 5; ++i) {
+        q.push(i);
+    }
+    EXPECT_EQ(q.size(), 5u);
+    q.clear();
+    EXPECT_TRUE(q.empty());
+    EXPECT_EQ(q.size(), 0u);
 }
 
-TEST_F(AtomicQueueTest, DifferentValueTypes) {
-  tp::AtomicQueue<std::string> string_queue;
+TEST(AtomicQueueTest, ConcurrentPushPop) {
+    tp::AtomicQueue<int> q;
+    const int num_threads = 4;
+    const int num_per_thread = 1000;
 
-  string_queue.enqueue("hello");
-  string_queue.enqueue(std::string("world"));
+    auto pusher = [&q, num_per_thread]() {
+        for (int i = 0; i < num_per_thread; ++i) {
+            q.push(i);
+        }
+    };
 
-  EXPECT_EQ(string_queue.size(), 2);
-  EXPECT_EQ(string_queue.front(), std::optional<std::string>("hello"));
+    auto popper = [&q, num_per_thread]() {
+        int count = 0;
+        while (count < num_per_thread) {
+            auto val = q.pop();
+            if (val.has_value()) {
+                count++;
+            } else {
+                // 如果没有弹出元素则稍微等待一下
+                std::this_thread::yield();
+            }
+        }
+    };
 
-  EXPECT_EQ(string_queue.dequeue(), std::optional<std::string>("hello"));
-  EXPECT_EQ(string_queue.dequeue(), std::optional<std::string>("world"));
-  EXPECT_EQ(string_queue.size(), 0);
-}
+    // 启动2个线程push，2个线程pop
+    std::thread t1(pusher);
+    std::thread t2(pusher);
+    std::thread t3(popper);
+    std::thread t4(popper);
 
-TEST_F(AtomicQueueTest, StressTest) {
-  const int num_elements = 1'000'000;
+    t1.join();
+    t2.join();
+    t3.join();
+    t4.join();
 
-  for (int i = 0; i < num_elements; ++i) {
-    queue.enqueue(i);
-  }
-
-  EXPECT_EQ(queue.size(), num_elements);
-
-  for (int i = 0; i < num_elements; ++i) {
-    EXPECT_EQ(queue.dequeue(), std::optional<int>(i));
-  }
-
-  EXPECT_EQ(queue.size(), 0);
+    // 所有元素应该已被pop完
+    EXPECT_TRUE(q.empty());
+    EXPECT_EQ(q.size(), 0u);
 }

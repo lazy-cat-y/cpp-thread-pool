@@ -237,37 +237,119 @@ class VersionPointer {
 
 template <typename DataType>
 class AtomicQueue {
+  struct Node {
+    DataType _m_data;
+    VersionPointer<Node> _m_next;
+
+    explicit Node() : _m_data(DataType{}), _m_next(nullptr) {}
+    explicit Node(const DataType &_m_data)
+        : _m_data(_m_data), _m_next(nullptr) {}
+    explicit Node(DataType &&_m_data)
+        : _m_data(std::move(_m_data)), _m_next(nullptr) {}
+  };
+
  public:
-  explicit AtomicQueue() : _m_head(nullptr), _m_tail(nullptr), _m_size(0) {}
+  explicit AtomicQueue() {        // NOLINT
+    Node *_m_dummy = new Node();  // NOLINT
+    _m_head.update(nullptr, _m_dummy);
+    _m_tail.update(nullptr, _m_dummy);
+    _m_size.store(0, std::memory_order_relaxed);
+  }
 
   AtomicQueue(const AtomicQueue &other) = delete;
   AtomicQueue &operator=(const AtomicQueue &other) = delete;
   AtomicQueue(AtomicQueue &&other) = delete;
   AtomicQueue &operator=(AtomicQueue &&other) = delete;
 
-  // TODO: Implement the destructor
-  ~AtomicQueue() = default;
+  ~AtomicQueue() {
+    clear();
+    Node *_m_dummy = _m_head.get_pointer();
+    delete _m_dummy;  // NOLINT
+  }
 
-  bool push(DataType &&data) {}
+  bool push(DataType &&data) { return enqueue(std::move(data)); }
 
-  bool push(const DataType &data) {}
+  bool push(const DataType &data) { return enqueue(std::move(DataType{data})); }
 
-  std::optional<DataType> pop() {}
+  std::optional<DataType> pop() {
+    while (true) {
+      Node *_m_head_node = _m_head.get_pointer();
+      Node *_m_tail_node = _m_tail.get_pointer();
+      Node *_m_next_node = _m_head_node->_m_next.get_pointer();
 
-  DataType front() const {}
+      if (_m_head_node == _m_head.get_pointer()) {
+        if (_m_head_node == _m_tail_node) {
+          if (_m_next_node == nullptr) {
+            return std::nullopt;
+          }
 
-  DataType back() const {}
+          _m_tail.update(_m_tail_node, _m_next_node);
+        } else {
+          DataType _m_data = _m_next_node->_m_data;
 
-  bool empty() const {}
+          if (_m_head.update(_m_head_node, _m_next_node)) {
+            delete _m_head_node;  // NOLINT
+            _m_size.fetch_sub(1, std::memory_order_relaxed);
+            return std::optional<DataType>(_m_data);
+          }
+        }
+      }
+    }
+  }
 
-  size_t size() const {}
+  DataType &front() {
+    Node *_m_head_node = _m_head.get_pointer();
+    Node *_m_next_node = _m_head_node->_m_next.get_pointer();
 
-  void clear() {}
+    return _m_next_node->_m_data;
+  }
+
+  DataType &back() {
+    Node *_m_tail_node = _m_tail.get_pointer();
+
+    return _m_tail_node->_m_data;
+  }
+
+  bool empty() const {
+    Node *_m_head_node = _m_head.get_pointer();
+    Node *_m_tail_node = _m_tail.get_pointer();
+    Node *_m_next_node = _m_head_node->_m_next.get_pointer();
+
+    return _m_head_node == _m_tail_node && _m_next_node == nullptr;
+  }
+
+  size_t size() const { return _m_size.load(std::memory_order_relaxed); }
+
+  void clear() {
+    while (pop().has_value()) {
+    }
+  }
 
  protected:
  private:
-  VersionPointer<DataType> _m_head;
-  VersionPointer<DataType> _m_tail;
+  bool enqueue(DataType &&_m_new_node_data) {
+    Node *_m_new_node = new Node(std::move(_m_new_node_data));  // NOLINT
+
+    while (true) {
+      Node *_m_tail_node = _m_tail.get_pointer();
+      Node *_m_next_node = _m_tail_node->_m_next.get_pointer();
+
+      if (_m_tail_node == _m_tail.get_pointer()) {
+        if (_m_next_node == nullptr) {
+          if (_m_tail_node->_m_next.update(nullptr, _m_new_node)) {
+            _m_tail.update(_m_tail_node, _m_new_node);
+            _m_size.fetch_add(1, std::memory_order_relaxed);
+            return true;
+          }
+        } else {
+          _m_tail.update(_m_tail_node, _m_next_node);
+        }
+      }
+    }
+  }
+
+  VersionPointer<Node> _m_head;
+  VersionPointer<Node> _m_tail;
   std::atomic<size_t> _m_size;
 };
 

@@ -42,7 +42,7 @@ if (LIBATOMIC_LIBRARY)
     add_definitions(-DUSE_LIBATOMIC)
     link_libraries(${LIBATOMIC_LIBRARY})
 else()
-    message(FATAL_ERROR "libatomic not found")
+    message(STATUS "libatomic not found. Using internal implementation.")
 endif()
 
 
