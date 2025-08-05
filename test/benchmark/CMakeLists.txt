@@ -14,8 +14,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(benchmark)
 
-add_executable(thread-pool-benchmark test-performance.cc)
+add_executable(benchmark-test performance_test.cc)
 
-target_link_libraries(thread-pool-benchmark PRIVATE benchmark::benchmark benchmark::benchmark_main)
+target_link_libraries(benchmark-test PRIVATE benchmark::benchmark benchmark::benchmark_main atomic)
 
-target_include_directories(thread-pool-benchmark PRIVATE ${CMAKE_SOURCE_DIR})
+target_include_directories(benchmark-test PRIVATE ${CMAKE_SOURCE_DIR})
