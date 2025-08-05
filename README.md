@@ -9,49 +9,21 @@
 # **Thread Pool with Worker and Channel Implementation**
 
 ## **Description**
-This project implements a thread pool using a worker-based design pattern with a channel for task management and inter-thread communication. It is designed for efficient task execution in a multithreaded environment, featuring:
+This project implements a thread pool using a MPMC (Multiple Producers, Multiple Consumers) model in C++. It includes:
 
-- A thread-safe **Channel** for task queuing and communication.
-- A **Worker** class to process tasks.
-- A **ThreadPool** class to manage multiple workers and distribute tasks.
+- A lock-free, thread-safe **MPMC Queue** for task queuing based on Vyukov's design.
+- **Thread Pool** that manages worker threads.
 
 ## **Features**
-- **Worker Management**: Automatically starts and manages workers in a pool.
-- **Thread-Safe Channel**: Implements a thread-safe queue using condition variables and mutexes.
-- **Dynamic Task Assignment**: Supports submitting tasks to the pool and redistributing workloads.
-- **Monitoring and Recovery**:
-  - Detects deadlocks.
-  - Monitors worker heartbeats.
-  - Restarts workers if they become unresponsive.
+- **Lock-Free**: Utilizes lock-free data structures to minimize contention and improve performance.
+- **Multi Wait Strategy**: Supports multiple wait strategies for worker threads, allowing for flexibility in task execution.
 
-## **Code Structure**
-### **Classes**
-1. **Channel**  
-   A generic, thread-safe channel for task queuing and communication.
-2. **Worker**  
-   A worker thread that executes tasks from its queue.
-3. **ThreadPool**  
-   A thread pool that manages multiple workers and distributes tasks.
-
-### **Core Functions**
-#### Channel
-- `send` and `receive`: For pushing tasks into and retrieving tasks from the channel.
-- `close`: To stop accepting new tasks.
-
-#### Worker
-- `start`, `stop`, and `join`: For lifecycle management of the worker thread.
-- `submit`: For submitting tasks to the worker's queue.
-
-#### ThreadPool
-- `submit`: For submitting tasks to the pool.
-- `shutdown`: Gracefully stops all workers.
-- `restart_worker`: Restarts a specific worker in case of failure.
-
+<p align="center"> <table> <tr> <th>Wait Strategy</th> <th>Description</th> <th>Lock-Free</th> <th>Use Case</th> </tr> <tr> <td align="center"><code>PassiveWaitStrategy</code></td> <td>Uses <code>std::this_thread::sleep_for()</code> to sleep for a fixed duration. Simple and low CPU usage, but high latency.</td> <td align="center">✅</td> <td>Low-power scenarios or non-latency-critical tasks</td> </tr> <tr> <td align="center"><code>SpinBackOffWaitStrategy</code></td> <td>Busy-spins and yields gradually. Good tradeoff between latency and CPU usage.</td> <td align="center">✅</td> <td>High-throughput systems under moderate load</td> </tr> <tr> <td align="center"><code>AtomicWaitStrategy</code></td> <td>Waits on <code>std::atomic::wait()</code> and notifies via <code>notify_one</code>/<code>notify_all</code>. Lock-free and fast.</td> <td align="center">✅</td> <td>Modern platforms with support for C++20 atomics</td> </tr> <tr> <td align="center"><code>ConditionVariableWaitStrategy</code></td> <td>Uses <code>std::condition_variable</code>. Slightly higher overhead due to locks, but more portable.</td> <td align="center">❌</td> <td>Generic platforms or when lock-based waiting is needed</td> </tr> </table> </p>
 
 ## **Getting Started**
 
 ### **Prerequisites**
-- A C++17 or newer compiler (e.g., GCC, Clang).
+- A C++20 or newer compiler (e.g., GCC, Clang).
 - CMake (version 3.12 or higher).
 
 ### **Clone the repository**
@@ -69,7 +41,7 @@ This project supports configurable build options via `CMake`. You can customize 
 | Option Name        | Description                                                                          | Default Value |
 | ------------------ | ------------------------------------------------------------------------------------ | ------------- |
 | `ENABLE_TEST`      | Enable building unit tests using Google Test.                                        | `OFF`         |
-| `CMAKE_BUILD_TYPE` | Specify the build type. Options: `Debug`, `Release`, `RelWithDebInfo`, `MinSizeRel`. | `Release`       |
+| `CMAKE_BUILD_TYPE` | Specify the build type. Options: `Debug`, `Release`, `RelWithDebInfo`, `MinSizeRel`. | `Release`     |
 
 ---
 
@@ -111,23 +83,42 @@ CMAKE_BUILD_TYPE:STRING=Release
 Here's an example of how to use the thread pool:
 
 ```cpp
-#include "worker-pool.h"
-#include <iostream>
 
+#include "lc_thread_pool.h"
+
+using namespace lc;
+
+// Define metadata type
+struct MyMetadata {
+    int priority;
+};
+
+// Create a thread pool with 4 workers and default wait strategy
 int main() {
-    ThreadPool<4, 10, 2> pool;
+    auto queue = std::make_shared<MPMCQueue<Context<MyMetadata, std::function<void()>>>>(1024);
+    ThreadPool<4, MyMetadata> pool(queue);
 
-    std::vector<std::future<int>> futures;
-    for (int i = 0; i < 10; ++i) {
-        futures.push_back(pool.submit([](int x) { return x * x; }, i));
-    }
+    // Example 1: Submit a simple task with no return value and metadata
+    pool.submit(MyMetadata{.priority = 1}, [] {
+        std::cout << "Task with metadata executed\n";
+    });
 
-    for (int i = 0; i < 10; ++i) {
-        futures[i].get(); 
-    }
+    // Example 2: Submit a task with return value
+    auto future = pool.submit([]() -> int {
+        return 42;
+    });
+    std::cout << "Returned: " << future.get() << "\n";
+
+    // Example 3: Submit a task with arguments and metadata
+    auto sum_future = pool.submit(MyMetadata{.priority = 2}, [](int a, int b) {
+        return a + b;
+    }, 10, 32);
+    std::cout << "Sum: " << sum_future.get() << "\n";
 
     pool.shutdown();
+    return 0;
 }
+
 ```
 
 ---
@@ -138,15 +129,18 @@ int main() {
 ├── CMakeLists.txt           # Build configuration
 ├── src
 │   ├── include              
-│   │   ├── channel.hpp      # Channel implementation
-│   │   ├── m-define.h        # Macros for thread pool
-│   │   ├── worker.hpp       # Worker implementation
-│   │   └── worker-pool.hpp  # ThreadPool implementation
+│   │   ├── lc_config.hpp         # Configuration header
+│   │   ├── lc_context.h         # Context header
+│   │   ├── lc_mpmc_queue.hpp    # Multi-producer, multi-consumer queue
+│   │   ├── lc_thread_pool.hpp   # ThreadPool implementation
+│   │   └── lc_wait_strategy.hpp # Wait strategy implementation
 │   └──  CMakelists.txt      # Source files
 ├── tests
-│   ├── test-channel.cc      # Unit tests for the channel
-│   ├── test-pool.cc         # Unit tests for the thread pool
-│   └── test-worker.c        # Unit tests for the workers
+│   ├── base-test      # Unit tests for the base functionality
+│   │   ├── mpmc_queue_test.cc      # MPMC Queue tests
+│   │   └── thread_pool_test.cc     # ThreadPool tests
+│   ├── benchmark      # Performance tests for the thread pool
+│   │   └── performance_test.cc     # ThreadPool performance tests
 ├── third-party
 │   └── ...                  # Dependencies
 ├── README.md
