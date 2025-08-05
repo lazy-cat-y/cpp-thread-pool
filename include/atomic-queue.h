@@ -41,10 +41,8 @@ File: atomic-queue
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <limits>
 #include <optional>
 #include <utility>
-#include "def.h"
 
 /**
  * For the Head and Tail pointers, we use high bits to store the pointer and

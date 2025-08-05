@@ -1,8 +1,6 @@
 
 #include <gtest/gtest.h>
-#include <iostream>
 #include <thread>
-#include <vector>
 #include "atomic-queue.h"
 
 TEST(AtomicQueueTest, EmptyOnInit) {
