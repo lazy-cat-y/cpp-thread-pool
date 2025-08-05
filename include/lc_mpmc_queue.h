@@ -13,7 +13,8 @@
 LC_NAMESPACE_BEGIN
 
 template <typename Tp_>
-    requires std::is_move_constructible_v<Tp_>
+    requires std::is_move_constructible_v<Tp_> ||
+             std::is_copy_constructible_v<Tp_>
 class MPMCQueue {
     struct alignas(64) Cell {
         std::atomic<std::size_t> sequence;

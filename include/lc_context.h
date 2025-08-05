@@ -7,11 +7,14 @@
 
 LC_NAMESPACE_BEGIN
 
-template <typename Metadata>
+template <typename Metadata, typename Data>
     requires std::is_move_constructible_v<Metadata>
 struct Context {
     Metadata metadata;
+    Data     data;
 };
+
+struct EmptyMetadata {};
 
 LC_NAMESPACE_END
 

@@ -14,13 +14,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(benchmark)
 
-option(BENCHMARK_ATOMIC_QUEUE "Enable benchmark for atomic queue" ON)
+# option(BENCHMARK_ATOMIC_QUEUE "Enable benchmark for atomic queue" ON)
 
-if (BENCHMARK_ATOMIC_QUEUE)
-  add_executable(benchmark-test test-atomic-queue.cc)
-else()
-add_executable(thread-pool-benchmark test-performance.cc)
-endif()
+# if (BENCHMARK_ATOMIC_QUEUE)
+#   add_executable(benchmark-test test-atomic-queue.cc)
+# else()
+# add_executable(thread-pool-benchmark test-performance.cc)
+# endif()
+
+add_executable(benchmark-test test-performance.cc)
 
 target_link_libraries(benchmark-test PRIVATE benchmark::benchmark benchmark::benchmark_main atomic)
 

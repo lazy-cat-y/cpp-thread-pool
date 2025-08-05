@@ -43,8 +43,8 @@ include(FetchContent)
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
 # gtest
-option(ENABLE_BASE_TEST "Enable building base tests using Google Test" ON)
-option(ENABLE_BENCHMARK "Enable building benchmarks" OFF)
+option(ENABLE_BASE_TEST "Enable building base tests using Google Test" OFF)
+option(ENABLE_BENCHMARK "Enable building benchmarks" ON)
 
 # link the library atomic for 128 bit atomic operations
 find_library(LIBATOMIC_LIBRARY
